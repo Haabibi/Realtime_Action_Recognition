@@ -79,6 +79,7 @@ def make_infer(style, weights, fifty_data, net):
     data_gen = enumerate(data_loader)
     video_pred_tic = time.time() 
     for i, (data) in data_gen:
+        print(i)
         if i >= max_num:
             break
         if style == 'RGB':  
@@ -89,6 +90,7 @@ def make_infer(style, weights, fifty_data, net):
             of_eval_vid_tic = time.time()
             rst = eval_video(data, 10, net, style)
             of_eval_vid_toc = time.time()
+        #video_pred = np.argmax(np.mean(rst[0], axis=0))
     video_pred_toc = time.time() 
     if style == 'RGB':
         print("evaluating rgb in {:.4f}, {} data_loading in {:.4f}, video_pred in {:.4f}, net_eval {:.4f}".format(rgb_eval_vid_toc-rgb_eval_vid_tic, style, data_toc-data_tic, video_pred_toc-video_pred_tic, net_toc-net_tic))
@@ -210,7 +212,7 @@ if __name__=="__main__":
                         accumulated_time_for_of += (of_inf_toc - of_inf_tic)
 
                         print("inference rgb in {:.4f}, inference of in {:.4f}, fusing scores in {:.4f}".format(rgb_inf_toc-rgb_inf_tic, of_inf_toc-of_inf_tic, score_fuse_toc-score_fuse_tic))
-                print("accumulated time for rgb: {:.4f}, accumulated time for of: {:.4f}".format(accumulated_time_for_inf/(args.num_repeat), accumulated_time_for_of/(args.num_repeat))) 
+                print("accumulated time for rgb: {:.4f}, accumulated time for of: {:.4f}".format(accumulated_time_for_inf/(args.num_repeat-1), accumulated_time_for_of/(args.num_repeat))) 
                 extract_of = 0 
                 rgb_list.clear()
                 of_list.clear()

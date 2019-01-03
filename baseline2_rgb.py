@@ -71,7 +71,7 @@ def make_infer(style, weights, fifty_data, net):
     else:
         devices = list(range(args.workers))
     net_tic = time.time()
-    net = torch.nn.DataParallel(net.cuda(devices[0]), device_ids=devices)
+    net = torch.nn.DataParallel(net.cuda(devices[0]), device_ids=devices) #only net  ?? ?
     net.eval()
     net_toc = time.time()
     
@@ -89,12 +89,10 @@ def make_infer(style, weights, fifty_data, net):
             of_eval_vid_tic = time.time()
             rst = eval_video(data, 10, net, style)
             of_eval_vid_toc = time.time()
+        video_pred = np.argmax(np.mean(rst[0], axis=0))
     video_pred_toc = time.time() 
     if style == 'RGB':
-        print("evaluating rgb in {:.4f}, {} data_loading in {:.4f}, video_pred in {:.4f}, net_eval {:.4f}".format(rgb_eval_vid_toc-rgb_eval_vid_tic, style, data_toc-data_tic, video_pred_toc-video_pred_tic, net_toc-net_tic))
-    if style == 'Flow':
-        print("evaluating of in {:.4f}, {} data_loading in {:.4f}, video_pred in {:.4f}, net_eval {:.4f}".format(of_eval_vid_toc-of_eval_vid_tic, style, data_toc-data_tic, video_pred_toc-video_pred_tic, net_toc-net_tic))
-     
+        print("evaluating rgb(NET EVAL) in {:.4f}, {} data_loading in {:.4f}, video_pred in {:.4f}, net_eval and parallelism {:.4f}".format(rgb_eval_vid_toc-rgb_eval_vid_tic, style, data_toc-data_tic, video_pred_toc-video_pred_tic, net_toc-net_tic))
     return rst 
 
 
@@ -144,75 +142,38 @@ if __name__=="__main__":
     after = time.time() 
     print("loading rgb_net: ", after-before)
     
-    ########LOADING OF_NET#######
-    before_of = time.time()
-    of_net = TSN(num_class, 1, 'Flow',
-                 base_model=args.arch,
-                 consensus_type=args.crop_fusion_type,
-                 dropout=args.dropout)
-    of_checkpoint = torch.load(args.of_weights)
-    print("model epoch {} best prec@1: {}".format(of_checkpoint['epoch'], of_checkpoint['best_prec1']))
-    of_base_dict = {'.'.join(k.split('.')[1:]): v for k,v in list(of_checkpoint['state_dict'].items())}
-    of_net.load_state_dict(of_base_dict)
-    after_of = time.time() 
-    print("loading rgb_net: ", after_of-before_of)
-    
     cap = cv2.VideoCapture(vid_dir)
-    rgb_list, of_list, tmp_of_list = list(), list(), list()
-    rgb_epoch, of_epoch, avg_time, epoch_avg_time= 0, 0, 0, 0
-    extract_of = 0
+    rgb_list = list()
     accumulated_time_for_inf = 0 
-    accumulated_time_for_of = 0
     while(cap.isOpened()):
         ret, frame = cap.read()
         if ret == True:
             rgb_list.append(frame)
             if len(rgb_list) == 1:
                 first_time_rgb = time.time() 
-            
-            of_append_tic = time.time()
-            tmp_of_list.append(frame)
-            of_append_toc = time.time()
-            print("this is rgb_length: ", len(rgb_list), "this is of_list: ", len(of_list))
-            if(len(tmp_of_list) >= 2):
-                of_streaming_tic = time.time()
-                of_list.append(streaming(tmp_of_list[0], tmp_of_list[1], 'tvl1'))
-                of_streaming_toc = time.time()
-                tmp_of_list.pop(0)
-                extract_of += of_streaming_toc - of_streaming_tic 
-                #print("time for streaming optical flows: ", of_streaming_toc-of_streaming_tic)
-           
+            #print("this is rgb_length: ", len(rgb_list))
             if len(rgb_list) == args.q_size :
                 ##SCORE FUSION##
                 got_here_rgb = time.time() 
-                print("this is when rgb_list finally got in here for inference: ", got_here_rgb-first_time_rgb)
-                ##INFERENCE RGB & OF NETWORK ON THE SAME TIME## 
+                ##INFERENCE RGB## 
                 for i in range(args.num_repeat+1):
                     if i == 0:
+                        cold_case_tic = time.time()
                         make_infer('RGB', args.rgb_weights, rgb_list, rgb_net)
-                        make_infer('Flow', args.of_weights, of_list, of_net)
+                        cold_case_toc = time.time()
+                        print("cold case inf time: ", cold_case_toc-cold_case_tic)
                     else: 
                         rgb_inf_tic = time.time() 
                         rgb_inference = make_infer('RGB', args.rgb_weights, rgb_list, rgb_net)
                         rgb_inf_toc = time.time() 
-
-                        of_inf_tic = time.time() 
-                        of_inference = make_infer('Flow', args.of_weights, of_list, of_net)
-                        of_inf_toc = time.time()
-                        score_fuse_tic = time.time() 
-                        score_fusion = (rgb_inference + of_inference)/2
-                        video_pred = np.argmax(np.mean(score_fusion[0], axis=0))
-                        score_fuse_toc = time.time() 
-                         
                         video_pred = np.argmax(np.mean(rgb_inference[0], axis=0))
                         print(make_hmdb()[video_pred])
                         accumulated_time_for_inf += (rgb_inf_toc-rgb_inf_tic)
-                        accumulated_time_for_of += (of_inf_toc - of_inf_tic)
-
-                        print("inference rgb in {:.4f}, inference of in {:.4f}, fusing scores in {:.4f}".format(rgb_inf_toc-rgb_inf_tic, of_inf_toc-of_inf_tic, score_fuse_toc-score_fuse_tic))
-                print("accumulated time for rgb: {:.4f}, accumulated time for of: {:.4f}".format(accumulated_time_for_inf/(args.num_repeat), accumulated_time_for_of/(args.num_repeat))) 
-                extract_of = 0 
+                        print("inference rgb in {:.4f}".format(rgb_inf_toc-rgb_inf_tic))
+                print("accumulated time for rgb: {:.4f}".format(accumulated_time_for_inf/(args.num_repeat)))
+                accumulated_time_for_inf = 0 
                 rgb_list.clear()
-                of_list.clear()
+
         else:
+            print("done reading")
             break

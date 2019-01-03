@@ -6,7 +6,7 @@ import torch.nn.parallel
 import torch.optim
 from sklearn.metrics import confusion_matrix
 
-from dataset2 import TSNDataSet
+from dataset_disk import TSNDataSet
 from models import TSN
 from transforms import *
 from ops import ConsensusModule
@@ -33,11 +33,9 @@ def make_hmdb():
 def eval_video(video_data, length, net, modality):
     data = video_data
     num_crops = args.test_crops 
-       
     input_var = torch.autograd.Variable(data.view(-1, length, data.size(2), data.size(3)),
 					volatile=True)
     rst = net(input_var).data.cpu().numpy().copy()
-    output =  rst.reshape((args.test_crops, 25, num_class)).mean(axis=0).reshape((25, 1, num_class)).shape
     return rst.reshape((num_crops, args.test_segments, num_class)).mean(axis=0).reshape(
 	(args.test_segments, 1, num_class))
 
@@ -57,7 +55,7 @@ def infer_rgb(net):
         raise ValueError("Only 1 and 10 crops are supported while we got {}".format(args.test_crops))
     tic_loading_rgb = time.time()
     rgb_data_loader = torch.utils.data.DataLoader(
-	    TSNDataSet(os.path.join(args.root_path), num_segments=args.test_segments,
+	    TSNDataSet(args.root_path, num_segments=args.test_segments,
 		       new_length=1,
 		       modality='RGB',
 		       image_tmpl="img_{:05d}.jpg",
@@ -167,7 +165,7 @@ if __name__=="__main__":
 			help='number of data loading workers (default: 4)')
     parser.add_argument('--gpus', nargs='+', type=int, default=None)
     parser.add_argument('--flow_prefix', type=str, default='flow_')
-
+    parser.add_argument('--q_size', type=int, default=40)
     args = parser.parse_args()
 
     if args.dataset == 'ucf101':
@@ -191,7 +189,7 @@ if __name__=="__main__":
     rgb_net.load_state_dict(base_dict)
     #after = time.time()
     #print("loading rgb_net: ", after-before)
-    '''
+    
     ########INFERENCING RGB#######
     avg_time_rgb = 0
     N = 10
@@ -212,7 +210,7 @@ if __name__=="__main__":
     streaming(args.root_path, OF_DIR )
     toc2 = time.time() 
     print("streaming " + str(toc2 - tic2))
-   ''' 
+    
     #######LOADING OF NET####### 
     OF_DIR = '/home/haabibi/fall_detection/tsn-pytorch_tmp/sample_img_frames2' 
     tic_load_of = time.time()
@@ -226,7 +224,7 @@ if __name__=="__main__":
     of_net.load_state_dict(of_base_dict)
     toc_load_of = time.time() 
     print("loading of_net: ", toc_load_of-tic_load_of)
-    '''
+    
     ########INFERENCING OF#######
     avg_time_of = 0
     N = 10
@@ -236,14 +234,10 @@ if __name__=="__main__":
         toc1 = time.time() 
         print("how long it took", toc1 -tic1)
         if i == 0:
-            print(
             pass
         else:
             avg_time_of += toc1-tic1 
     print("inferencing rgb in ", avg_time_of/(N-1)) 
-    '''
-    #print(infer_rgb(rgb_net).shape)
-    #print(infer_of(OF_DIR, of_net).shape)
     rst1 = (infer_rgb(rgb_net) + infer_of(OF_DIR, of_net))/2
     video_pred = np.argmax(np.mean(rst1[0], axis=0))
     print(video_pred)

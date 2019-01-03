@@ -1,9 +1,10 @@
 # Fall Detection using Temporal Spatial Network 
 
-**Note**: always use `git clone --recursive https://github.com/yjxiong/tsn-pytorch` to clone this project. 
+**Note**: always use `git clone --recursive https://github.com/Haabibi/fall_detection_TSN.git` to clone this project. 
 Otherwise you will not be able to use the inception series CNN archs. 
 
 This is a reimplementation of temporal segment networks (TSN) in PyTorch. All settings are kept identical to the original caffe implementation.
+This was adapted from  `https://github.com/yjxiong/tsn-pytorch`. 
 
 
 ## Training
