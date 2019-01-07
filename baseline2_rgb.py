@@ -5,12 +5,18 @@ import torch.nn.parallel
 import torch.optim
 from sklearn.metrics import confusion_matrix
 import cv2
-from dataset_memory import TSNDataSet 
+from dataset_memory_2 import TSNDataSet 
 from models import TSN
 from transforms import * 
 from ops import ConsensusModule
 from streaming4 import streaming
-from threading import Thread
+import pycuda.driver as cuda
+import pycuda.gpuarray 
+from PIL import Image
+
+# import torch.multiprocessing as mp
+# mp.set_start_method('spawn')
+# mp = mp.get_context('spawn')
 
 def make_ucf():
     index_dir = '/cmsdata/hdd2/cmslab/haabibi/UCF101CLASSIND.txt'
@@ -32,10 +38,15 @@ def make_hmdb():
 
 def eval_video(data, length, net, style):
     input_var = torch.autograd.Variable(data.view(-1, length, data.size(2), data.size(3)), volatile=True)
-    rst = net(input_var).data.cpu().numpy().copy()
-    return rst.reshape((args.test_crops, args.test_segments, num_class)).mean(axis=0).reshape((args.test_segments, 1, num_class))
+    
+    rst = net(input_var)
+    rst_data = rst.data
+    rst_data_cpu = rst_data.cpu()
+    rst_data_np = rst_data_cpu.numpy().copy()
+    
+    return rst_data_np.reshape((args.test_crops, args.test_segments, num_class)).mean(axis=0).reshape((args.test_segments, 1, num_class))
 
-def make_infer(style, weights, fifty_data, net, list_size): 
+def make_infer(style, weights, batched_array, net): 
     if args.test_crops == 1:
         cropping = torchvision.transforms.Compose([
 	    GroupScale(net.scale_size),
@@ -50,10 +61,18 @@ def make_infer(style, weights, fifty_data, net, list_size):
     if style == 'RGB':
         flow_prefix = 'img'
     else:
-        flow_prefix = 'flow_{}' 
+        flow_prefix = 'flow_{}'
+    #print("[net cuda]: ", net.get_device())
+    print("[type of net]: ", type(net), type(weights), type(batched_array))
+    #if batched_array.get_device() != 0 and torch.cuda.is_available():
+    #batched_array = batched_array.cuda()
+    # cuda.init()
+    batched_array = torch.cuda.FloatTensor(batched_array)
+    print("[batched_array type] :", type(batched_array))
+    print("[check whether the batched_array is in gpu]: ", batched_array.get_device())
     data_tic = time.time() 
     data_loader = torch.utils.data.DataLoader(
-           TSNDataSet(fifty_data,
+           TSNDataSet(batched_array,
                       modality=style,
                       image_tmpl= flow_prefix + "_{:05d}.jpg", num_segments=args.test_segments, 
                       new_length=1 if style == 'RGB' else 5, 
@@ -63,19 +82,45 @@ def make_infer(style, weights, fifty_data, net, list_size):
                           ToTorchFormatTensor(div=args.arch != 'BNInception'),
                           GroupNormalize(net.input_mean, net.input_std),
                       ]),test_mode=True),
-               batch_size=list_size, shuffle=False,
-               num_workers=args.workers * 2, pin_memory=True)
-    data_toc = time.time() 
-    if args.gpus is not None:
-        devices = [args.gpus[i] for i in range(args.workers)]
-    else:
-        devices = list(range(args.workers))
-    net_tic = time.time()
-    net = torch.nn.DataParallel(net.cuda(devices[0]), device_ids=devices)
-    net.eval()
-    net_toc = time.time()
+               batch_size=args.q_size, shuffle=False,
+               num_workers=0,#args.workers * 2,
+               pin_memory=True)
+    data_toc = time.time()
+    #device = torch.cuda.device('cuda') if torch.cuda.is_available() else torch.cuda.device('cpu') 
+    #device = torch.cuda.device(0) if torch.cuda.is_available() 
+    net.float() 
+    net.eval() 
+    net = net.cuda() 
+    '''
+    transform=torchvision.transforms.Compose([
+        cropping,
+        Stack(roll=args.arch == 'BNInception'),
+        ToTorchFormatTensor(div=args.arch != 'BNInception'),
+        GroupNormalize(net.input_mean, net.input_std),
+        ])
+    '''
+    #batched_array = Image.fromarray(batched_array[0])
+    #inp = transform(batched_array, 'RGB')
+    #inp = torch.unsqueeze(inp, 0)
+    #inp = inp.cuda() 
+
+    #print("this is the len of data_list", len(data_list))
+    #print("this is the shape of elem in data_list", data_list[0].shape)
+    #if args.gpus is not None:
+    #    devices = [args.gpus[i] for i in range(args.workers)]
+    #else:
+    #    devices = list(range(args.workers))
+    #print("is cuda available?", torch.cuda.is_available())
+    #print("how many devices? ", pycuda.driver.Device.count())
+    #device = torch.cuda.device('cuda') if torch.cuda.is_available() else torch.cuda.device('cpu') 
+    #print("this is device", device) 
+    #net_tic = time.time()
+    #net = torch.nn.DataParallel(net.cuda(devices[0]), device_ids=devices) #only net  ?? ?
+   # net.eval()
+    #net_toc = time.time()
     
-    max_num = args.max_num if args.max_num > 0 else len(data_loader.dataset)
+    #max_num = args.max_num if args.max_num > 0 else len(data_loader.dataset)
+    '''    
     data_gen = enumerate(data_loader)
     video_pred_tic = time.time() 
     for i, (data) in data_gen:
@@ -89,12 +134,18 @@ def make_infer(style, weights, fifty_data, net, list_size):
             of_eval_vid_tic = time.time()
             rst = eval_video(data, 10, net, style)
             of_eval_vid_toc = time.time()
+        video_pred = np.argmax(np.mean(rst[0], axis=0))
+    video_pred_toc = time.time()
+    '''
+    video_pred_tic = time.time()
+    data = next(iter(data_loader))
+    eval_vid_tic = time.time() 
+    rst = eval_video(data, 3 if style =="RGB" else 5, net, style) 
+    eval_vid_toc = time.time() 
+    video_pred = np.argmax(np.mean(rst[0], axis=0))
     video_pred_toc = time.time() 
     if style == 'RGB':
-        print("evaluating rgb in {:.4f}, {} data_loading in {:.4f}, video_pred in {:.4f}, net_eval {:.4f}".format(rgb_eval_vid_toc-rgb_eval_vid_tic, style, data_toc-data_tic, video_pred_toc-video_pred_tic, net_toc-net_tic))
-    if style == 'Flow':
-        print("evaluating of in {:.4f}, {} data_loading in {:.4f}, video_pred in {:.4f}, net_eval {:.4f}".format(of_eval_vid_toc-of_eval_vid_tic, style, data_toc-data_tic, video_pred_toc-video_pred_tic, net_toc-net_tic))
-     
+        print("evaluating rgb(NET EVAL) in {:.4f}, {} data_loading in {:.4f}, video_pred in {:.4f}, net_eval and parallelism {:.4f}".format(eval_vid_toc-eval_vid_tic, style, data_toc-data_tic, video_pred_toc-video_pred_tic, net_toc-net_tic))
     return rst 
 
 
@@ -141,82 +192,65 @@ if __name__=="__main__":
     print("model epoch {} best prec@1: {}".format(rgb_checkpoint['epoch'], rgb_checkpoint['best_prec1']))
     base_dict = {'.'.join(k.split('.')[1:]): v for k,v in list(rgb_checkpoint['state_dict'].items())}
     rgb_net.load_state_dict(base_dict)
+    rgb_net = rgb_net.cuda()
+    print("[rgb_net_cuda]: ", next(rgb_net.parameters()).is_cuda, type(rgb_net))  # RETURNS TRUE
     after = time.time() 
     print("loading rgb_net: ", after-before)
     
-    ########LOADING OF_NET#######
-    before_of = time.time()
-    of_net = TSN(num_class, 1, 'Flow',
-                 base_model=args.arch,
-                 consensus_type=args.crop_fusion_type,
-                 dropout=args.dropout)
-    of_checkpoint = torch.load(args.of_weights)
-    print("model epoch {} best prec@1: {}".format(of_checkpoint['epoch'], of_checkpoint['best_prec1']))
-    of_base_dict = {'.'.join(k.split('.')[1:]): v for k,v in list(of_checkpoint['state_dict'].items())}
-    of_net.load_state_dict(of_base_dict)
-    after_of = time.time() 
-    print("loading rgb_net: ", after_of-before_of)
-    
     cap = cv2.VideoCapture(vid_dir)
-    rgb_list, of_list, tmp_of_list = list(), list(), list()
-    rgb_epoch, of_epoch, avg_time, epoch_avg_time= 0, 0, 0, 0
-    extract_of = 0
-    accumulated_time_for_inf = 0 
-    accumulated_time_for_of = 0
+    rgb_list = list()
+    accumulated_time_for_inf = 0
+    counter = 0
+    # torch.cuda.init()
     while(cap.isOpened()):
         ret, frame = cap.read()
         if ret == True:
-            rgb_list.append(frame)
+            counter += 1 
+            if counter == 1:
+                 inp = np.zeros((240, 320, 3))
+                 inp += frame
+                 print("[c1] inp.shape: ", inp.shape)
+            elif counter < args.q_size: 
+                 inp = np.concatenate((inp, frame))
+                 print("[c{}] inp.shape: ".format(counter), inp.shape)
+            elif counter == args.q_size:
+                 inp = np.concatenate((inp, frame))
+                 inp = inp.reshape((args.q_size, 240, 320, 3))
+                 
+                 print("[c{}] inp.shape: ".format(counter), inp.shape)
+                 _temp = inp[3]
+                 #_temp = _temp.transpose((2, 0, 1))
+                 print("[_temp]: ", len(_temp), type(_temp), _temp.shape)
+                 _img_temp = Image.fromarray(_temp, mode='RGB') 
+                 print("[_img_temp]: ", type(_img_temp))
+                 make_infer('RGB', args.rgb_weights, inp, rgb_net)
+                 counter = 0 
+            '''
+            print("len of rgb_list", len(rgb_list))
             if len(rgb_list) == 1:
-                first_time_rgb = time.time() 
-            
-            of_append_tic = time.time()
-            tmp_of_list.append(frame)
-            of_append_toc = time.time()
-            print("this is rgb_length: ", len(rgb_list), "this is of_list: ", len(of_list))
-            if(len(tmp_of_list) >= 2):
-                of_streaming_tic = time.time()
-                of_list.append(streaming(tmp_of_list[0], tmp_of_list[1], 'tvl1'))
-                of_streaming_toc = time.time()
-                tmp_of_list.pop(0)
-                extract_of += of_streaming_toc - of_streaming_tic 
-                #print("time for streaming optical flows: ", of_streaming_toc-of_streaming_tic)
-           
+                make_infer('RGB', args.rgb_weights, rgb_list, rgb_net)
             if len(rgb_list) == args.q_size :
                 ##SCORE FUSION##
                 got_here_rgb = time.time() 
-                print("this is when rgb_list finally got in here for inference: ", got_here_rgb-first_time_rgb)
-                ##INFERENCE RGB & OF NETWORK ON THE SAME TIME## 
+                ##INFERENCE RGB## 
                 for i in range(args.num_repeat+1):
                     if i == 0:
-                        make_infer('RGB', args.rgb_weights, rgb_list, rgb_net, len(rgb_list))
-                        make_infer('Flow', args.of_weights, of_list, of_net, len(of_list))
-                        print("len of rgb_list: {}, len of of_list: {}".format(len(rgb_list), len(of_list)))
+                        cold_case_tic = time.time()
+                        make_infer('RGB', args.rgb_weights, rgb_list, rgb_net)
+                        cold_case_toc = time.time()
+                        print("cold case inf time: ", cold_case_toc-cold_case_tic)
                     else: 
                         rgb_inf_tic = time.time() 
-                        rgb_inference = make_infer('RGB', args.rgb_weights, rgb_list, rgb_net, len(rgb_list))
+                        rgb_inference = make_infer('RGB', args.rgb_weights, rgb_list, rgb_net)
                         rgb_inf_toc = time.time() 
-
-                        of_inf_tic = time.time() 
-                        of_inference = make_infer('Flow', args.of_weights, of_list, of_net, len(of_list))
-                        of_inf_toc = time.time()
-                        score_fuse_tic = time.time() 
-                        score_fusion = (rgb_inference + of_inference)/2
-                        video_pred = np.argmax(np.mean(score_fusion[0], axis=0))
-                        score_fuse_toc = time.time() 
-                        print("len of rgb_list: {}, len of of_list: {}".format(len(rgb_list), len(of_list)))
-                         
+                        print("inference rgb in {:.4f}".format(rgb_inf_toc-rgb_inf_tic))
                         video_pred = np.argmax(np.mean(rgb_inference[0], axis=0))
                         print(make_hmdb()[video_pred])
                         accumulated_time_for_inf += (rgb_inf_toc-rgb_inf_tic)
-                        accumulated_time_for_of += (of_inf_toc - of_inf_tic)
-
-                        print("inference rgb in {:.4f}, inference of in {:.4f}, fusing scores in {:.4f}".format(rgb_inf_toc-rgb_inf_tic, of_inf_toc-of_inf_tic, score_fuse_toc-score_fuse_tic))
-                print("accumulated time for rgb: {:.4f}, accumulated time for of: {:.4f}".format(accumulated_time_for_inf/(args.num_repeat), accumulated_time_for_of/(args.num_repeat))) 
-                extract_of = 0 
-                accumulated_time_for_inf = 0
-                accumulated_time_for_of = 0
+                print("accumulated time for rgb: {:.4f}".format(accumulated_time_for_inf/(args.num_repeat)))
+                accumulated_time_for_inf = 0 
                 rgb_list.clear()
-                of_list.clear()
+            '''
         else:
+            print("done reading")
             break

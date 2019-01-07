@@ -8,12 +8,13 @@ from numpy.random import randint
 import glob
 
 class TSNDataSet(data.Dataset):
-    def __init__(self, root_path,
-                 num_segments=3, new_length=1, modality='RGB',
-                 image_tmpl='img_{:05d}.jpg', transform=None,
+    def __init__(self, 
+                 fifty_data,
+                 modality,
+                 image_tmpl, num_segments=3, new_length=1, transform=None,
                  force_grayscale=False, random_shift=True, test_mode=False):
 
-        self.root_path = root_path
+        self.datalist = fifty_data
         self.num_segments = num_segments
         self.new_length = new_length
         self.modality = modality
@@ -21,28 +22,19 @@ class TSNDataSet(data.Dataset):
         self.transform = transform
         self.random_shift = random_shift
         self.test_mode = test_mode
-#        self.num_frames = len(glob.glob("img*"))
-        num_frames = 0
-        for i in glob.iglob(os.path.join(self.root_path, 'img*'), recursive=True):
-            num_frames += 1
-        #for i in glb.iglob(os.path.join(self.root_path, 'flow
-        self.num_frames = num_frames 
+        self.num_frames = len(fifty_data) 
         if self.modality == 'RGBDiff':
             self.new_length += 1# Diff needs one more image to calculate diff
 
-        self._parse_list()
-
-    def _load_image(self, directory, idx):
+    def _load_image(self, fifty_data, idx):
         if self.modality == 'RGB' or self.modality == 'RGBDiff':
-            return [Image.open(os.path.join(directory, self.image_tmpl.format(idx))).convert('RGB')]
+            im = Image.fromarray(fifty_data[idx-1])
+            return [im.convert('RGB')]
         elif self.modality == 'Flow':
-            x_img = Image.open(os.path.join(directory, self.image_tmpl.format('x', idx))).convert('L')
-            y_img = Image.open(os.path.join(directory, self.image_tmpl.format('y', idx))).convert('L')
-            return [x_img, y_img]
+            x_img = Image.fromarray(fifty_data[idx-1][0])
+            y_img = Image.fromarray(fifty_data[idx-1][1]) 
+            return [x_img.convert('L'), y_img.convert('L')] 
 
-    def _parse_list(self):
-        #self.video_list = [VideoRecord(x.strip().split(' ')) for x in open(self.list_file)]
-        self.video_list = [self.root_path]
 
     def _sample_indices(self):
         average_duration = (self.num_frames - self.new_length + 1) // self.num_segments
@@ -69,7 +61,6 @@ class TSNDataSet(data.Dataset):
         return offsets + 1
 
     def __getitem__(self, idx):
-  #      assert idx == 0
 
 	# TODO Specify which file to load
         #record = self.video_list[index]
@@ -83,11 +74,11 @@ class TSNDataSet(data.Dataset):
         return self.get(segment_indices)
 
     def get(self, indices):
-        images = list() 
+        images = list()
         for seg_ind in indices:
             p = int(seg_ind)
             for i in range(self.new_length):
-                seg_imgs = self._load_image(self.root_path, p)
+                seg_imgs = self._load_image(self.datalist, p)
                 images.extend(seg_imgs)
                 if p < self.num_frames:
                     p += 1
@@ -97,4 +88,3 @@ class TSNDataSet(data.Dataset):
 
     def __len__(self):
         return 1
-     #   return len(os.listdir(self.root_path))

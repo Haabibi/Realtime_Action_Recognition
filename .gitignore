@@ -101,5 +101,9 @@ ENV/
 .mypy_cache/
 
 .idea
-
+# checkpoints 
 ckpt
+
+# img files
+*.jpg
+

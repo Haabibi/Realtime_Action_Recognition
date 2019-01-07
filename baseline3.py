@@ -155,6 +155,7 @@ if __name__=="__main__":
 			help='number of data loading workers (default: 2)')
     parser.add_argument('--gpus', nargs='+', type=int, default=None)
     parser.add_argument('--flow_prefix', type=str, default='')
+    parser.add_argument('--q_size', type=int, default=40)
 
     args = parser.parse_args()
 

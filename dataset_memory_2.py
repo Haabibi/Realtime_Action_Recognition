@@ -9,12 +9,13 @@ import glob
 
 class TSNDataSet(data.Dataset):
     def __init__(self, 
-                 fifty_data,
+                 data,
                  modality,
                  image_tmpl, num_segments=3, new_length=1, transform=None,
                  force_grayscale=False, random_shift=True, test_mode=False):
 
-        self.datalist = fifty_data
+        self.datalist = data
+        print("[self.datalist]: ", len(self.datalist), data.shape, type(data))
         self.num_segments = num_segments
         self.new_length = new_length
         self.modality = modality
@@ -22,11 +23,9 @@ class TSNDataSet(data.Dataset):
         self.transform = transform
         self.random_shift = random_shift
         self.test_mode = test_mode
-        self.num_frames = len(fifty_data) 
+        self.num_frames = data.shape[0] 
         if self.modality == 'RGBDiff':
             self.new_length += 1# Diff needs one more image to calculate diff
-
-        self._parse_list()
 
     def _load_image(self, fifty_data, idx):
         if self.modality == 'RGB' or self.modality == 'RGBDiff':
@@ -37,45 +36,36 @@ class TSNDataSet(data.Dataset):
             y_img = Image.fromarray(fifty_data[idx-1][1]) 
             return [x_img.convert('L'), y_img.convert('L')] 
 
-    def _parse_list(self):
-        self.video_list = self.datalist
-
-    def _sample_indices(self):
-        average_duration = (self.num_frames - self.new_length + 1) // self.num_segments
-        if average_duration > 0:
-            offsets = np.multiply(list(range(self.num_segments)), average_duration) + randint(average_duration, size=self.num_segments)
-        elif self.num_frames > self.num_segments:
-            offsets = np.sort(randint(self.num_frames - self.new_length + 1, size=self.num_segments))
-        else:
-            offsets = np.zeros((self.num_segments,))
-        return offsets + 1
-
-    def _get_val_indices(self):
-        if self.num_frames > self.num_segments + self.new_length - 1:
-            tick = (self.num_frames - self.new_length + 1) / float(self.num_segments)
-            offsets = np.array([int(tick / 2.0 + tick * x) for x in range(self.num_segments)])
-        else:
-            offsets = np.zeros((self.num_segments,))
-        return offsets + 1
-
     def _get_test_indices(self):
         tick = (self.num_frames - self.new_length + 1) / float(self.num_segments)
-
+        print("THIS IS TICK", self.num_frames, self.new_length, tick) 
         offsets = np.array([int(tick / 2.0 + tick * x) for x in range(self.num_segments)])
-        return offsets + 1
+        print("from [_get_test_indices]", offsets)
+        return offsets
+    
 
     def __getitem__(self, idx):
 
-	# TODO Specify which file to load
-        #record = self.video_list[index]
-
         if not self.test_mode:
+            print("HERE NOT IN THE TEST MODE")
             segment_indices = self._sample_indices() if self.random_shift else self._get_val_indices()
         else:
+            print("ACTUALLY I AM BEING TESTED")
             segment_indices = self._get_test_indices()
-
-	# TODO Return the result of transform
-        return self.get(segment_indices)
+            print("THIS IS from [__getitem__]", segment_indices)
+            for seg_ind in segment_indices:
+                p = int(seg_ind)
+                seg_img = self.datalist[seg_ind]
+                print("[seg_img]", type(seg_img), seg_img.shape)
+                im = Image.fromarray(seg_img, mode='RGB')
+                print("GOT ERROR HERE")
+                #im = [im.convert('RGB')]
+                im = im.convert('RGB')
+                print("[im]", type(im))
+                if p < self.num_frames:
+                    p += 1
+                process_data = self.transform([im])
+        return process_data
 
     def get(self, indices):
         images = list()
@@ -91,4 +81,4 @@ class TSNDataSet(data.Dataset):
         return process_data
 
     def __len__(self):
-        return len(self.datalist)
+        return 1

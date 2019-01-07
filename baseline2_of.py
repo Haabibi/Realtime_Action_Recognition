@@ -35,7 +35,7 @@ def eval_video(data, length, net, style):
     rst = net(input_var).data.cpu().numpy().copy()
     return rst.reshape((args.test_crops, args.test_segments, num_class)).mean(axis=0).reshape((args.test_segments, 1, num_class))
 
-def make_infer(style, weights, fifty_data, net, list_size): 
+def make_infer(style, weights, fifty_data, net): 
     if args.test_crops == 1:
         cropping = torchvision.transforms.Compose([
 	    GroupScale(net.scale_size),
@@ -63,7 +63,7 @@ def make_infer(style, weights, fifty_data, net, list_size):
                           ToTorchFormatTensor(div=args.arch != 'BNInception'),
                           GroupNormalize(net.input_mean, net.input_std),
                       ]),test_mode=True),
-               batch_size=list_size, shuffle=False,
+               batch_size=args.q_size, shuffle=False,
                num_workers=args.workers * 2, pin_memory=True)
     data_toc = time.time() 
     if args.gpus is not None:
@@ -79,6 +79,7 @@ def make_infer(style, weights, fifty_data, net, list_size):
     data_gen = enumerate(data_loader)
     video_pred_tic = time.time() 
     for i, (data) in data_gen:
+        print(i)
         if i >= max_num:
             break
         if style == 'RGB':  
@@ -89,6 +90,7 @@ def make_infer(style, weights, fifty_data, net, list_size):
             of_eval_vid_tic = time.time()
             rst = eval_video(data, 10, net, style)
             of_eval_vid_toc = time.time()
+        #video_pred = np.argmax(np.mean(rst[0], axis=0))
     video_pred_toc = time.time() 
     if style == 'RGB':
         print("evaluating rgb in {:.4f}, {} data_loading in {:.4f}, video_pred in {:.4f}, net_eval {:.4f}".format(rgb_eval_vid_toc-rgb_eval_vid_tic, style, data_toc-data_tic, video_pred_toc-video_pred_tic, net_toc-net_tic))
@@ -189,22 +191,20 @@ if __name__=="__main__":
                 ##INFERENCE RGB & OF NETWORK ON THE SAME TIME## 
                 for i in range(args.num_repeat+1):
                     if i == 0:
-                        make_infer('RGB', args.rgb_weights, rgb_list, rgb_net, len(rgb_list))
-                        make_infer('Flow', args.of_weights, of_list, of_net, len(of_list))
-                        print("len of rgb_list: {}, len of of_list: {}".format(len(rgb_list), len(of_list)))
+                        make_infer('RGB', args.rgb_weights, rgb_list, rgb_net)
+                        make_infer('Flow', args.of_weights, of_list, of_net)
                     else: 
                         rgb_inf_tic = time.time() 
-                        rgb_inference = make_infer('RGB', args.rgb_weights, rgb_list, rgb_net, len(rgb_list))
+                        rgb_inference = make_infer('RGB', args.rgb_weights, rgb_list, rgb_net)
                         rgb_inf_toc = time.time() 
 
                         of_inf_tic = time.time() 
-                        of_inference = make_infer('Flow', args.of_weights, of_list, of_net, len(of_list))
+                        of_inference = make_infer('Flow', args.of_weights, of_list, of_net)
                         of_inf_toc = time.time()
                         score_fuse_tic = time.time() 
                         score_fusion = (rgb_inference + of_inference)/2
                         video_pred = np.argmax(np.mean(score_fusion[0], axis=0))
                         score_fuse_toc = time.time() 
-                        print("len of rgb_list: {}, len of of_list: {}".format(len(rgb_list), len(of_list)))
                          
                         video_pred = np.argmax(np.mean(rgb_inference[0], axis=0))
                         print(make_hmdb()[video_pred])
@@ -212,10 +212,8 @@ if __name__=="__main__":
                         accumulated_time_for_of += (of_inf_toc - of_inf_tic)
 
                         print("inference rgb in {:.4f}, inference of in {:.4f}, fusing scores in {:.4f}".format(rgb_inf_toc-rgb_inf_tic, of_inf_toc-of_inf_tic, score_fuse_toc-score_fuse_tic))
-                print("accumulated time for rgb: {:.4f}, accumulated time for of: {:.4f}".format(accumulated_time_for_inf/(args.num_repeat), accumulated_time_for_of/(args.num_repeat))) 
+                print("accumulated time for rgb: {:.4f}, accumulated time for of: {:.4f}".format(accumulated_time_for_inf/(args.num_repeat-1), accumulated_time_for_of/(args.num_repeat))) 
                 extract_of = 0 
-                accumulated_time_for_inf = 0
-                accumulated_time_for_of = 0
                 rgb_list.clear()
                 of_list.clear()
         else:
