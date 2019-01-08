@@ -75,7 +75,7 @@ def make_infer(style, weights, batched_array, net):
                           GroupNormalize(net.input_mean, net.input_std),
                       ]),test_mode=True),
                batch_size=args.q_size, shuffle=False,
-               num_workers=0,#args.workers * 2,
+               num_workers=1,#args.workers * 2,
                pin_memory=True)
     answer = make_hmdb() if args.dataset == 'hmdb51' else make_ucf()
     data_toc = time.time()
@@ -88,8 +88,6 @@ def make_infer(style, weights, batched_array, net):
     eval_vid_tic = time.time()
     rst = eval_video(data, 3 if style =="RGB" else 5, net, style) 
     eval_vid_toc = time.time()
-    video_pred = np.argmax(np.mean(rst[0], axis=0))
-    print("THIS IS THE RESULT: ", answer[video_pred])
     video_pred_toc = time.time() 
     if style == 'RGB':
         print("evaluating rgb(NET EVAL) in {:.4f}, {} data_loading in {:.4f}, video_pred in {:.4f}, net_eval and parallelism {:.4f}".format(eval_vid_toc-eval_vid_tic, style, data_toc-data_tic, video_pred_toc-video_pred_tic, video_pred_tic-data_toc))
@@ -159,8 +157,13 @@ if __name__=="__main__":
             elif counter == args.q_size:
                  inp = np.concatenate((inp, frame))
                  inp = inp.reshape((args.q_size, 240, 320, 3))
-                 print("[c{}] inp.shape: ".format(counter), inp.shape)
-                 make_infer('RGB', args.rgb_weights, inp, rgb_net)
+                 #print("[c{}] inp.shape: ".format(counter), inp.shape)
+                 rgb_inf_tic = time.time()
+                 rgb_inf_score = make_infer('RGB', args.rgb_weights, inp, rgb_net)
+                 rgb_inf_toc = time.time()
+                 video_pred = np.argmax(np.mean(rgb_inf_score[0], axis=0))
+                 print("THIS IS THE RESULT: ", make_hmdb()[video_pred])
+                  
                  counter = 0 
 
         else:
