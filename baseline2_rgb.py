@@ -32,8 +32,15 @@ def make_hmdb():
 
 def eval_video(data, length, net, style):
     input_var = torch.autograd.Variable(data.view(-1, length, data.size(2), data.size(3)), volatile=True)
-    rst = net(input_var).data.cpu().numpy().copy()
-    return rst.reshape((args.test_crops, args.test_segments, num_class)).mean(axis=0).reshape((args.test_segments, 1, num_class))
+    run_net_tic = time.time()
+    rst = net(input_var)
+    run_net_toc = time.time() 
+    rst_data = rst.data
+    rst_data_cpu = rst_data.cpu()
+    rst_data_np = rst_data_cpu.numpy().copy()
+    rst_cpu_copy_time = time.time()
+    print("[eval_video]: [run_net]: {}, [cpu_copy_time]: {}".format(run_net_toc-run_net_tic, rst_cpu_copy_time-run_net_toc))
+    return rst_data_np.reshape((args.test_crops, args.test_segments, num_class)).mean(axis=0).reshape((args.test_segments, 1, num_class))
 
 def make_infer(style, weights, fifty_data, net): 
     if args.test_crops == 1:
@@ -65,7 +72,8 @@ def make_infer(style, weights, fifty_data, net):
                       ]),test_mode=True),
                batch_size=args.q_size, shuffle=False,
                num_workers=args.workers * 2, pin_memory=True)
-    data_toc = time.time() 
+    data_toc = time.time()
+    print("[time for lading data]: ", data_toc-data_tic)
     if args.gpus is not None:
         devices = [args.gpus[i] for i in range(args.workers)]
     else:
@@ -74,9 +82,12 @@ def make_infer(style, weights, fifty_data, net):
     net = torch.nn.DataParallel(net.cuda(devices[0]), device_ids=devices) #only net  ?? ?
     net.eval()
     net_toc = time.time()
-    
+    print("[time for torch.DataParallel]: ", net_toc - net_tic)
     max_num = args.max_num if args.max_num > 0 else len(data_loader.dataset)
+    enumrate_time = time.time() 
     data_gen = enumerate(data_loader)
+    video_pred_tic = time.time() 
+    print("[time for enumerating data_loader]: ", video_pred_tic-enumrate_time, "[max_num]: ", max_num)
     video_pred_tic = time.time() 
     for i, (data) in data_gen:
         if i >= max_num:
@@ -89,10 +100,10 @@ def make_infer(style, weights, fifty_data, net):
             of_eval_vid_tic = time.time()
             rst = eval_video(data, 10, net, style)
             of_eval_vid_toc = time.time()
-        video_pred = np.argmax(np.mean(rst[0], axis=0))
     video_pred_toc = time.time() 
-    if style == 'RGB':
-        print("evaluating rgb(NET EVAL) in {:.4f}, {} data_loading in {:.4f}, video_pred in {:.4f}, net_eval and parallelism {:.4f}".format(rgb_eval_vid_toc-rgb_eval_vid_tic, style, data_toc-data_tic, video_pred_toc-video_pred_tic, net_toc-net_tic))
+    print("[time actually running for loop]: ", video_pred_toc-video_pred_tic)
+    #if style == 'RGB':
+    #    print("evaluating rgb(NET EVAL) in {:.4f}, {} data_loading in {:.4f}, video_pred in {:.4f}, net_eval and parallelism {:.4f}".format(rgb_eval_vid_toc-rgb_eval_vid_tic, style, data_toc-data_tic, video_pred_toc-video_pred_tic, net_toc-net_tic))
     return rst 
 
 
@@ -151,11 +162,9 @@ if __name__=="__main__":
             rgb_list.append(frame)
             if len(rgb_list) == 1:
                 first_time_rgb = time.time() 
-            #print("this is rgb_length: ", len(rgb_list))
             if len(rgb_list) == args.q_size :
-                ##SCORE FUSION##
                 got_here_rgb = time.time() 
-                ##INFERENCE RGB## 
+                print("[time when all frames are ready to be run]: ", got_here_rgb-first_time_rgb)
                 for i in range(args.num_repeat+1):
                     if i == 0:
                         cold_case_tic = time.time()
@@ -167,10 +176,12 @@ if __name__=="__main__":
                         rgb_inference = make_infer('RGB', args.rgb_weights, rgb_list, rgb_net)
                         rgb_inf_toc = time.time() 
                         video_pred = np.argmax(np.mean(rgb_inference[0], axis=0))
+                        arg_max_time = time.time() 
                         print(make_hmdb()[video_pred])
+                        answer_time = time.time() 
                         accumulated_time_for_inf += (rgb_inf_toc-rgb_inf_tic)
-                        print("inference rgb in {:.4f}".format(rgb_inf_toc-rgb_inf_tic))
-                print("accumulated time for rgb: {:.4f}".format(accumulated_time_for_inf/(args.num_repeat)))
+                        print("inference rgb in {:.5f}, video pred arg_max in {:.5f}, getting the result in {:.5f} ".format(rgb_inf_toc-rgb_inf_tic, arg_max_time-rgb_inf_toc, answer_time-arg_max_time))
+                print("accumulated time for rgb: {:.5f}".format(accumulated_time_for_inf/(args.num_repeat)))
                 accumulated_time_for_inf = 0 
                 rgb_list.clear()
 
