@@ -14,10 +14,6 @@ import pycuda.driver as cuda
 import pycuda.gpuarray 
 from PIL import Image
 
-# import torch.multiprocessing as mp
-# mp.set_start_method('spawn')
-# mp = mp.get_context('spawn')
-
 def make_ucf():
     index_dir = '/cmsdata/hdd2/cmslab/haabibi/UCF101CLASSIND.txt'
     index_dict = {}
@@ -37,12 +33,16 @@ def make_hmdb():
     return index_dict
 
 def eval_video(data, length, net, style):
+    print("[these are the parameters of eval_vid]: ", length, data.size(2), data.size(3), data.shape)
     input_var = torch.autograd.Variable(data.view(-1, length, data.size(2), data.size(3)), volatile=True)
-    
+    input_var = input_var.cuda()
+    print("[eval_vid]: ", type(input_var), input_var.shape) 
     rst = net(input_var)
+     
     rst_data = rst.data
     rst_data_cpu = rst_data.cpu()
     rst_data_np = rst_data_cpu.numpy().copy()
+    print("[rst_data_np]: ", type(rst_data_np), rst_data_np.shape)
     
     return rst_data_np.reshape((args.test_crops, args.test_segments, num_class)).mean(axis=0).reshape((args.test_segments, 1, num_class))
 
@@ -62,14 +62,6 @@ def make_infer(style, weights, batched_array, net):
         flow_prefix = 'img'
     else:
         flow_prefix = 'flow_{}'
-    #print("[net cuda]: ", net.get_device())
-    print("[type of net]: ", type(net), type(weights), type(batched_array))
-    #if batched_array.get_device() != 0 and torch.cuda.is_available():
-    #batched_array = batched_array.cuda()
-    # cuda.init()
-    batched_array = torch.cuda.FloatTensor(batched_array)
-    print("[batched_array type] :", type(batched_array))
-    print("[check whether the batched_array is in gpu]: ", batched_array.get_device())
     data_tic = time.time() 
     data_loader = torch.utils.data.DataLoader(
            TSNDataSet(batched_array,
@@ -85,67 +77,22 @@ def make_infer(style, weights, batched_array, net):
                batch_size=args.q_size, shuffle=False,
                num_workers=0,#args.workers * 2,
                pin_memory=True)
+    answer = make_hmdb() if args.dataset == 'hmdb51' else make_ucf()
     data_toc = time.time()
-    #device = torch.cuda.device('cuda') if torch.cuda.is_available() else torch.cuda.device('cpu') 
-    #device = torch.cuda.device(0) if torch.cuda.is_available() 
     net.float() 
     net.eval() 
     net = net.cuda() 
-    '''
-    transform=torchvision.transforms.Compose([
-        cropping,
-        Stack(roll=args.arch == 'BNInception'),
-        ToTorchFormatTensor(div=args.arch != 'BNInception'),
-        GroupNormalize(net.input_mean, net.input_std),
-        ])
-    '''
-    #batched_array = Image.fromarray(batched_array[0])
-    #inp = transform(batched_array, 'RGB')
-    #inp = torch.unsqueeze(inp, 0)
-    #inp = inp.cuda() 
-
-    #print("this is the len of data_list", len(data_list))
-    #print("this is the shape of elem in data_list", data_list[0].shape)
-    #if args.gpus is not None:
-    #    devices = [args.gpus[i] for i in range(args.workers)]
-    #else:
-    #    devices = list(range(args.workers))
-    #print("is cuda available?", torch.cuda.is_available())
-    #print("how many devices? ", pycuda.driver.Device.count())
-    #device = torch.cuda.device('cuda') if torch.cuda.is_available() else torch.cuda.device('cpu') 
-    #print("this is device", device) 
-    #net_tic = time.time()
-    #net = torch.nn.DataParallel(net.cuda(devices[0]), device_ids=devices) #only net  ?? ?
-   # net.eval()
-    #net_toc = time.time()
-    
-    #max_num = args.max_num if args.max_num > 0 else len(data_loader.dataset)
-    '''    
-    data_gen = enumerate(data_loader)
-    video_pred_tic = time.time() 
-    for i, (data) in data_gen:
-        if i >= max_num:
-            break
-        if style == 'RGB':  
-            rgb_eval_vid_tic = time.time()
-            rst = eval_video(data, 3, net, style)
-            rgb_eval_vid_toc = time.time()
-        else:
-            of_eval_vid_tic = time.time()
-            rst = eval_video(data, 10, net, style)
-            of_eval_vid_toc = time.time()
-        video_pred = np.argmax(np.mean(rst[0], axis=0))
-    video_pred_toc = time.time()
-    '''
     video_pred_tic = time.time()
     data = next(iter(data_loader))
-    eval_vid_tic = time.time() 
+    print("[type of data]: ", type(data))
+    eval_vid_tic = time.time()
     rst = eval_video(data, 3 if style =="RGB" else 5, net, style) 
-    eval_vid_toc = time.time() 
+    eval_vid_toc = time.time()
     video_pred = np.argmax(np.mean(rst[0], axis=0))
+    print("THIS IS THE RESULT: ", answer[video_pred])
     video_pred_toc = time.time() 
     if style == 'RGB':
-        print("evaluating rgb(NET EVAL) in {:.4f}, {} data_loading in {:.4f}, video_pred in {:.4f}, net_eval and parallelism {:.4f}".format(eval_vid_toc-eval_vid_tic, style, data_toc-data_tic, video_pred_toc-video_pred_tic, net_toc-net_tic))
+        print("evaluating rgb(NET EVAL) in {:.4f}, {} data_loading in {:.4f}, video_pred in {:.4f}, net_eval and parallelism {:.4f}".format(eval_vid_toc-eval_vid_tic, style, data_toc-data_tic, video_pred_toc-video_pred_tic, video_pred_tic-data_toc))
     return rst 
 
 
@@ -196,12 +143,8 @@ if __name__=="__main__":
     print("[rgb_net_cuda]: ", next(rgb_net.parameters()).is_cuda, type(rgb_net))  # RETURNS TRUE
     after = time.time() 
     print("loading rgb_net: ", after-before)
-    
     cap = cv2.VideoCapture(vid_dir)
-    rgb_list = list()
-    accumulated_time_for_inf = 0
     counter = 0
-    # torch.cuda.init()
     while(cap.isOpened()):
         ret, frame = cap.read()
         if ret == True:
@@ -216,41 +159,10 @@ if __name__=="__main__":
             elif counter == args.q_size:
                  inp = np.concatenate((inp, frame))
                  inp = inp.reshape((args.q_size, 240, 320, 3))
-                 
                  print("[c{}] inp.shape: ".format(counter), inp.shape)
-                 _temp = inp[3]
-                 #_temp = _temp.transpose((2, 0, 1))
-                 print("[_temp]: ", len(_temp), type(_temp), _temp.shape)
-                 _img_temp = Image.fromarray(_temp, mode='RGB') 
-                 print("[_img_temp]: ", type(_img_temp))
                  make_infer('RGB', args.rgb_weights, inp, rgb_net)
                  counter = 0 
-            '''
-            print("len of rgb_list", len(rgb_list))
-            if len(rgb_list) == 1:
-                make_infer('RGB', args.rgb_weights, rgb_list, rgb_net)
-            if len(rgb_list) == args.q_size :
-                ##SCORE FUSION##
-                got_here_rgb = time.time() 
-                ##INFERENCE RGB## 
-                for i in range(args.num_repeat+1):
-                    if i == 0:
-                        cold_case_tic = time.time()
-                        make_infer('RGB', args.rgb_weights, rgb_list, rgb_net)
-                        cold_case_toc = time.time()
-                        print("cold case inf time: ", cold_case_toc-cold_case_tic)
-                    else: 
-                        rgb_inf_tic = time.time() 
-                        rgb_inference = make_infer('RGB', args.rgb_weights, rgb_list, rgb_net)
-                        rgb_inf_toc = time.time() 
-                        print("inference rgb in {:.4f}".format(rgb_inf_toc-rgb_inf_tic))
-                        video_pred = np.argmax(np.mean(rgb_inference[0], axis=0))
-                        print(make_hmdb()[video_pred])
-                        accumulated_time_for_inf += (rgb_inf_toc-rgb_inf_tic)
-                print("accumulated time for rgb: {:.4f}".format(accumulated_time_for_inf/(args.num_repeat)))
-                accumulated_time_for_inf = 0 
-                rgb_list.clear()
-            '''
+
         else:
             print("done reading")
             break

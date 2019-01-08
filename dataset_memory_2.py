@@ -1,8 +1,7 @@
+import torch
 import torch.utils.data as data
-
+from torchvision import transforms
 from PIL import Image
-import os
-import os.path
 import numpy as np
 from numpy.random import randint
 import glob
@@ -26,7 +25,7 @@ class TSNDataSet(data.Dataset):
         self.num_frames = data.shape[0] 
         if self.modality == 'RGBDiff':
             self.new_length += 1# Diff needs one more image to calculate diff
-
+    '''
     def _load_image(self, fifty_data, idx):
         if self.modality == 'RGB' or self.modality == 'RGBDiff':
             im = Image.fromarray(fifty_data[idx-1])
@@ -35,38 +34,32 @@ class TSNDataSet(data.Dataset):
             x_img = Image.fromarray(fifty_data[idx-1][0])
             y_img = Image.fromarray(fifty_data[idx-1][1]) 
             return [x_img.convert('L'), y_img.convert('L')] 
-
+    ''' 
     def _get_test_indices(self):
         tick = (self.num_frames - self.new_length + 1) / float(self.num_segments)
-        print("THIS IS TICK", self.num_frames, self.new_length, tick) 
         offsets = np.array([int(tick / 2.0 + tick * x) for x in range(self.num_segments)])
-        print("from [_get_test_indices]", offsets)
-        return offsets
+        return offsets 
     
 
     def __getitem__(self, idx):
 
         if not self.test_mode:
-            print("HERE NOT IN THE TEST MODE")
             segment_indices = self._sample_indices() if self.random_shift else self._get_val_indices()
         else:
-            print("ACTUALLY I AM BEING TESTED")
             segment_indices = self._get_test_indices()
-            print("THIS IS from [__getitem__]", segment_indices)
+            list_imgs = []
             for seg_ind in segment_indices:
                 p = int(seg_ind)
                 seg_img = self.datalist[seg_ind]
-                print("[seg_img]", type(seg_img), seg_img.shape)
+                
                 im = Image.fromarray(seg_img, mode='RGB')
-                print("GOT ERROR HERE")
-                #im = [im.convert('RGB')]
-                im = im.convert('RGB')
-                print("[im]", type(im))
+                list_imgs.append(im)
                 if p < self.num_frames:
                     p += 1
-                process_data = self.transform([im])
+                process_data = self.transform(list_imgs)
+                #print("this is what i've got for process_data ", type(process_data), process_data.shape)
         return process_data
-
+    '''
     def get(self, indices):
         images = list()
         for seg_ind in indices:
@@ -79,6 +72,6 @@ class TSNDataSet(data.Dataset):
 
         process_data = self.transform(images)
         return process_data
-
+    '''
     def __len__(self):
         return 1
