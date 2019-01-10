@@ -31,6 +31,7 @@ def make_hmdb():
     return index_dict
 
 def eval_video(data, length, net, style):
+    print("[EVAL VIDEO DATA SIZE]: ", style, data.shape, type(data))
     input_var = torch.autograd.Variable(data.view(-1, length, data.size(2), data.size(3)), volatile=True)
     rst = net(input_var).data.cpu().numpy().copy()
     return rst.reshape((args.test_crops, args.test_segments, num_class)).mean(axis=0).reshape((args.test_segments, 1, num_class))

@@ -4,8 +4,7 @@ from torchvision import transforms
 from PIL import Image
 import numpy as np
 from numpy.random import randint
-import glob
-
+import time 
 class TSNDataSet(data.Dataset):
     def __init__(self, 
                  data,
@@ -42,7 +41,7 @@ class TSNDataSet(data.Dataset):
     
 
     def __getitem__(self, idx):
-
+            
         if not self.test_mode:
             segment_indices = self._sample_indices() if self.random_shift else self._get_val_indices()
         else:
@@ -51,13 +50,22 @@ class TSNDataSet(data.Dataset):
             for seg_ind in segment_indices:
                 p = int(seg_ind)
                 seg_img = self.datalist[seg_ind]
-                
+                time_array_yet = time.time()  
                 im = Image.fromarray(seg_img, mode='RGB')
+                print("[IM size Original]: ", im.size)
+                im = im.resize((224, 224)) 
+                print("[IM size after resize]: ", im.size)
+                #im = transforms.functional.resize(im, (224, 224), interpolation=2),
+                #print("[IM SIZE AFTER TRANSFORM]: ", type(im))
+                time_image_now = time.time() 
+                #print("[ARRAY --> IMG]: ", time_image_now-time_array_yet)
+                #print("[time_array_yet]: ", time_array_yet, "[time_image_now]: ", time_image_now)
                 list_imgs.append(im)
                 if p < self.num_frames:
                     p += 1
+                
                 process_data = self.transform(list_imgs)
-                #print("this is what i've got for process_data ", type(process_data), process_data.shape)
+                #print("this is what i've got for process_data ", type(process_data), process_data.shape, "len of imgs", len(list_imgs))
         return process_data
     '''
     def get(self, indices):
