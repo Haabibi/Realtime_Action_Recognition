@@ -34,8 +34,9 @@ def eval_video(data, length, net, style):
     print("[EVAL VIDEO DATA SIZE]: ", style, data.shape, type(data))
     input_var = torch.autograd.Variable(data.view(-1, length, data.size(2), data.size(3)), volatile=True)
     rst = net(input_var).data.cpu().numpy().copy()
-    return rst.reshape((args.test_crops, args.test_segments, num_class)).mean(axis=0).reshape((args.test_segments, 1, num_class))
-
+    output = rst.reshape((args.test_crops, args.test_segments, num_class)).mean(axis=0).reshape((args.test_segments, 1, num_class))
+    print("THIS IS THE SHAPE OF THE OUTPUT for STYLE {} ".format(style), output.shape) 
+    return output 
 def make_infer(style, weights, fifty_data, net, list_size): 
     if args.test_crops == 1:
         cropping = torchvision.transforms.Compose([
