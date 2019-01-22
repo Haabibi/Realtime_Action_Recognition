@@ -199,7 +199,6 @@ TSN Configurations:
             base_out = self.softmax(base_out)
         if self.reshape:
             base_out = base_out.view((-1, self.num_segments) + base_out.size()[1:])
-
         output = self.consensus(base_out)
         return output.squeeze(1)
 

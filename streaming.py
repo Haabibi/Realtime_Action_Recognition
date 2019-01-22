@@ -23,6 +23,5 @@ def streaming(img1, img2, flow_type='tvl1', bound=15):
         
         flow_x = ToImg(flowDTVL1[...,0],bound) #type: np array
         flow_y = ToImg(flowDTVL1[...,1],bound)
-
     return [flow_x, flow_y]
 
