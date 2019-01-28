@@ -30,25 +30,27 @@ def make_hmdb():
 
 def eval_video(data, length, net, style):
     #torch.cuda.set_device(0) if style == 'RGB' else torch.cuda.set_device(1)
-    data = data.cuda() 
-    #print("EVAL_VIDEO DATASIZE", data.shape, type(data), style, torch.cuda.current_device())
+    data = data.cuda()
     input_var = torch.autograd.Variable(data.view(-1, length , data.size(1), data.size(2)), volatile=True)
-    #print("INPUT VAR", input_var.shape)
-    torch.cuda.nvtx.range_push(style)
+    #torch.cuda.nvtx.range_push(style)
+    net_tic = time.time()
     rst = net(input_var)
-    #print("RST SHAPE", rst.shape, style)
-    torch.cuda.nvtx.range_pop()
+    net_toc = time.time()
+    print("INF TIME: ", net_toc-net_tic)
+    #torch.cuda.nvtx.range_pop()
     time_run_net = time.time()
     rst_data = rst.data.cpu().numpy().copy()
 
     output = rst_data.reshape((-1 , args.test_segments, num_class)).mean(axis=0).reshape((args.test_segments, 1, num_class))
+    print("Output shape: " , output.shape)
     return output
 
 def _get_indices(data, style):
     new_length = 1 if style == 'RGB' else 5 
-    tick =  (len(data) - new_length + 1) / float(args.test_segments)
+    tick =  (len(data)  - new_length + 1) / float(args.test_segments)
     offsets = np.array([int(tick / 2.0 + tick * x) for x in range(args.test_segments)])
-    return offsets
+    
+    return offsets + 1
 
 def _get_item(data, net, style):
     list_imgs = []
@@ -69,7 +71,7 @@ def _get_item(data, net, style):
             seg_img = data[seg_ind]
             im = Image.fromarray(seg_img, mode='RGB')
             #im = im.resize((224, 224))
-            list_imgs.append(im) 
+            list_imgs.extend([im]) 
         if style == 'Flow':
             for i in range(5):
                 seg_img = data[seg_ind + i] 
@@ -78,9 +80,7 @@ def _get_item(data, net, style):
             #x_img = x_img.resize((224, 224))
             #y_img = y_img.resize((224, 224))
                 list_imgs.extend([x_img.convert('L'), y_img.convert('L')])
-            #print("FROM PROCESS_DATA: ", len(list_imgs), seg_img[0].shape, x_img.size)
-    process_data = transform(list_imgs) 
-    #print("PROCESS DATA ", process_data.shape)
+    process_data = transform(list_imgs)
     return process_data
 
 def make_infer(weights, batched_array, net, style): 
@@ -88,18 +88,13 @@ def make_infer(weights, batched_array, net, style):
     #print("Current GPU for style {}: ".format(style), torch.cuda.current_device())
     net.float() 
     net.eval() 
-    net_cuda_tic = time.time()
     net = net.cuda() 
-    net_cuda_toc = time.time() 
-    #print("[net_cuda_time]: ", net_cuda_toc-net_cuda_tic, next(net.parameters()).is_cuda)
     eval_vid_tic = time.time()
     time_data_tic = time.time()
     data = _get_item(batched_array, net, style) 
-    #print("THIS IS FROM MAKE_INFER Data: ", data.shape) 
     time_data_toc = time.time()
     rst = eval_video(data, 3 if style =="RGB" else 10, net, style) 
     eval_vid_toc = time.time()
-    #print("[getitem]: ", time_data_toc-time_data_tic, "[rst, eval_vid]: ", eval_vid_toc-eval_vid_tic)
     return rst 
 
 if __name__=="__main__":
@@ -137,14 +132,14 @@ if __name__=="__main__":
     
     import os 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
-    cuda.init()
+    #cuda.init()
     #######CHECK GPU STATUS#######
-    print("NUM OF DEVICES: ", cuda.Device.count())
-    gpu_list = [ i for i in range(cuda.Device.count())]
-    print("THIS IS GPU LIST: ", gpu_list)
+    #print("NUM OF DEVICES: ", cuda.Device.count())
+    #gpu_list = [ i for i in range(cuda.Device.count())]
+    #print("THIS IS GPU LIST: ", gpu_list)
 
     #######LOADING RGB_NET#######
-    torch.cuda.nvtx.range_push('RGB NET')
+    #torch.cuda.nvtx.range_push('RGB NET')
     before = time.time()
     rgb_net = TSN(num_class, 1, 'RGB',
                   base_model=args.arch,
@@ -155,14 +150,14 @@ if __name__=="__main__":
     base_dict = {'.'.join(k.split('.')[1:]): v for k,v in list(rgb_checkpoint['state_dict'].items())}
     rgb_net.load_state_dict(base_dict)
     #torch.cuda.set_device(0)
-    rgb_net = rgb_net.cuda()
-    print("[rgb_net_cuda]: ", next(rgb_net.parameters()).is_cuda, type(rgb_net))  # RETURNS TRUE
-    after = time.time() 
-    print("loading rgb_net: ", after-before)
-    torch.cuda.nvtx.range_pop()
+    #rgb_net = rgb_net.cuda()
+    #print("[rgb_net_cuda]: ", next(rgb_net.parameters()).is_cuda, type(rgb_net))  # RETURNS TRUE
+    #after = time.time() 
+    #print("loading rgb_net: ", after-before)
+    #torch.cuda.nvtx.range_pop()
 
     #######LOADING OF_NET#######
-    torch.cuda.nvtx.range_push('OF NET')
+    #torch.cuda.nvtx.range_push('OF NET')
     before = time.time()
     of_net = TSN(num_class, 1, 'Flow',
                   base_model=args.arch,
@@ -173,65 +168,54 @@ if __name__=="__main__":
     base_dict = {'.'.join(k.split('.')[1:]): v for k,v in list(of_checkpoint['state_dict'].items())}
     of_net.load_state_dict(base_dict)
     #torch.cuda.set_device(1) if len(gpu_list) > 0 else torch.cuda.set_device(0)
-    of_net = of_net.cuda()
-    print("[of_net_cuda]: ", next(rgb_net.parameters()).is_cuda, type(of_net))  # RETURNS TRUE
+    #of_net = of_net.cuda()
+    #print("[of_net_cuda]: ", next(rgb_net.parameters()).is_cuda, type(of_net))  # RETURNS TRUE
     after = time.time() 
-    print("loading of_net: ", after-before)
-    torch.cuda.nvtx.range_pop() 
+    #print("loading of_net: ", after-before)
+    #torch.cuda.nvtx.range_pop() 
     
     output, video_labels = [], []
-    video_data = open('../tsn-pytorch/ucf101_file_lists/video_ucf101_rgb_val_split_1.txt', 'r')
+    video_data = open('../tsn-pytorch/ucf101_file_lists/single_video.txt', 'r')
+    #video_data = open('../tsn-pytorch/ucf101_file_lists/video_ucf101_rgb_val_split_1.txt', 'r')
     #video_data = open('../tsn-pytorch/ucf101_file_lists/short_video_ucf.txt', 'r')
-    #video_data = open('../tsn-pytorch/ucf101_file_lists/short_ucf_split.txt', 'r')
+    
     data_loader = video_data.readlines()
     counter = 0 
-    
+    output_results = {} 
     for video in data_loader: 
         video_load = video.split(' ') #video_load: video full link 
-        video_labels.append(int(video_load[1][:-1]))
-        
-       # keys = video_load[0].split('/')
-       # vid_key = keys[-1] 
-       # actual_video = '/cmsdata/hdd2/cmslab/haabibi/UCF101/' + vid_key + '.avi'
+        video_labels.append(int(video_load[1].strip()))
         cap = cv2.VideoCapture(video_load[0])
-      #  video_labels.append(int(video_load[2][:-1]))#video_label
         rgb_list, _tmp_of, of_list = list(), list(), list()
-        output_results = {} 
         loading_frames =0
         before11 = time.time()
-        rst = 0 
+        rst = 0
+        num_frames = 0 
+        #directory_write = open(os.path.join())
         while(cap.isOpened()):
             ret, frame = cap.read()
             accumulated_time_for_rgb = 0 
             accumulated_time_for_of = 0 
             accumulated_RGB, accumulated_OF = 0, 0 
-            accu_flow_toc = 0
-            num_frames = 0 
             if ret == True:
-                rgb_list.append(frame)
-                #_tmp_of.append(frame)
-                first_time_rgb = time.time()
-                #if len(_tmp_of) >= 2: 
-                #    flow_tic= time.time()
-                #    of_list.append(streaming(_tmp_of[0], _tmp_of[1], 'tvl1'))
-                #    flow_toc = time.time()
-                #    _tmp_of.pop(0)
                 num_frames += 1 
-                #    accu_flow_toc += (flow_toc-flow_tic)
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img_id = num_frames
+                rgb_list.append(frame)
+                first_time_rgb = time.time()
             else:
                 inf_tic = time.time()
                 rst = make_infer(args.rgb_weights, rgb_list, rgb_net, 'RGB')
-                #of_rst = make_infer(args.of_weights, of_list, of_net, 'Flow')
+                offsets = _get_indices(rgb_list, 'RGB')
                 inf_toc = time.time()
                 print("video {} done, total {}/{}".format(counter, counter+1, len(data_loader) ), rst.shape) 
                 counter+= 1
-                accu_flow_toc += inf_toc-inf_tic
-                #output.append(np.argmax(np.mean(rst[0], axis=0)))
-                #print(output)
                 output.append(rst)
+                temp_rst = np.argmax(np.mean(rst[0], axis=0))
+                output_results[video_load[0][37:]] = temp_rst
                 print("[output length]: ", len(output), "how long it took to infer one video: ", inf_toc-inf_tic)
                 break 
-    print("avg inference time", accu_flow_toc/counter) 
+    print(output_results)
     video_pred = [np.argmax(np.mean(x[0], axis=0)) for x in output]
     print(video_labels, video_pred)
     cf = confusion_matrix(video_labels, video_pred).astype(float)
