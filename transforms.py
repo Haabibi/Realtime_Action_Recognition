@@ -73,6 +73,7 @@ class GroupNormalize(object):
         for t, m, s in zip(tensor, rep_mean, rep_std):
             t.sub_(m).div_(s)
 
+        print("FROM GROUP NORMALIZE: ", type(tensor), tensor.shape, torch.min(tensor), torch.max(tensor), torch.std(tensor), torch.mean(tensor)) 
         return tensor
 
 
@@ -126,6 +127,9 @@ class GroupOverSample(object):
 
             oversample_group.extend(normal_group)
             oversample_group.extend(flip_group)
+        
+        
+        
         return oversample_group
 
 
@@ -282,6 +286,7 @@ class ToTorchFormatTensor(object):
             # put it from HWC to CHW format
             # yikes, this transpose takes 80% of the loading time/CPU
             img = img.transpose(0, 1).transpose(0, 2).contiguous()
+        
         return img.float().div(255) if self.div else img.float()
 
 

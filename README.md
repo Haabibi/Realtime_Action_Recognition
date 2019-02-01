@@ -30,19 +30,26 @@ To run Baseline1, run the following:
 python baseline1.py hmdb51 pullup_img_frames/ ./ckpt/hmdb51_rgb_1_ckpt.pth.tar ./ckpt/hmdb51_flow_1_ckpt.pth.tar --arch BNInception
 ```
 
-#### Baseline2
+#### Baseline2 (RGB + OF)
 Another basic pipeline with no threads. This baseline aims to reduce the time for loading data by not reading each frame from the disk but from _memory_. Execution of models happens when every 40 frames are appended to the RGB list, leading 39 frames to be left in the OF list. 
 In order to get the average running time, two networks are run simultaneouly for ten times, and the scores from each network will be fused every iteration is over. 
 To run Baseline2, run the following on your command line: 
+
+END-TO-END LATENCY: (RGB) 670ms
+
 ```bash
 python baseline2.py hmdb51 ./ckpt/hmdb51_bninception_1_rgb_checkpoint.pth.tar ./ckpt/hmdb51_bnInception_1_flow_checkpoint.pth.tar --q_size 40 --test_segments 10
 ```
 
-#### Baseline2_1 (RGB)
+#### Baseline2_1 (RGB + OF)
 In order to seek for optimization and shortening the latency of the current Baseline2 code, Baseline2_1 is explored. 
-**(THIS IS WHERE I AM CURRENTLY AT)**
+This was achieved by removing PyTorch Dataset, DataLoader. 
+GPU MEMORY USAGE: 5000MB, END-TO-END Latency: (RGB) 326ms (OF) 180ms 
+
+**(THIS STEP CAN (or actually WILL) BE SEEN AS THE ACTUAL BASELINE)**
+
 ```bash
-python baseline2_rgb.py hmdb51 ./ckpt/hmdb51_bninception_1_rgb_checkpoint.pth.tar ./ckpt/hmdb51_bnInception_1_flow_checkpoint.pth.tar --q_size 40 --test_segments 10
+python baseline2_combined.py hmdb51 ./ckpt/hmdb51_bninception_1_rgb_checkpoint.pth.tar ./ckpt/hmdb51_bnInception_1_flow_checkpoint.pth.tar --q_size 40 --test_segments 10
 ```
 
 #### Baseline3

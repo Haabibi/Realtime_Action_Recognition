@@ -90,7 +90,7 @@ TSN Configurations:
         elif base_model == 'BNInception':
             import tf_model_zoo
             self.base_model = getattr(tf_model_zoo, base_model)()
-            self.base_model = self.base_model.cuda()
+            #self.base_model = self.base_model.cuda()
             #self.base_model = getattr(tf_model_zoo, 'bninception')()
             self.base_model.last_layer_name = 'fc'
             self.input_size = 224

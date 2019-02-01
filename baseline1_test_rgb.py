@@ -47,10 +47,10 @@ def eval_video(data, length, net, style):
 
 def _get_indices(data, style):
     new_length = 1 if style == 'RGB' else 5 
-    tick =  (len(data)  - new_length + 1) / float(args.test_segments)
+    tick =  (len(data) - new_length +1) / float(args.test_segments)
     offsets = np.array([int(tick / 2.0 + tick * x) for x in range(args.test_segments)])
-    
-    return offsets + 1
+    print(offsets) 
+    return offsets
 
 def _get_item(data, net, style):
     list_imgs = []
@@ -175,20 +175,20 @@ if __name__=="__main__":
     #torch.cuda.nvtx.range_pop() 
     
     output, video_labels = [], []
-    video_data = open('../tsn-pytorch/ucf101_file_lists/single_video.txt', 'r')
+    video_data = open('../tsn-pytorch/ucf101_file_lists/video_101classes.txt', 'r')
     #video_data = open('../tsn-pytorch/ucf101_file_lists/video_ucf101_rgb_val_split_1.txt', 'r')
     #video_data = open('../tsn-pytorch/ucf101_file_lists/short_video_ucf.txt', 'r')
     
     data_loader = video_data.readlines()
     counter = 0 
     output_results = {} 
+    accumulated_time = 0 
     for video in data_loader: 
+        print(video)
         video_load = video.split(' ') #video_load: video full link 
         video_labels.append(int(video_load[1].strip()))
         cap = cv2.VideoCapture(video_load[0])
         rgb_list, _tmp_of, of_list = list(), list(), list()
-        loading_frames =0
-        before11 = time.time()
         rst = 0
         num_frames = 0 
         #directory_write = open(os.path.join())
@@ -199,25 +199,35 @@ if __name__=="__main__":
             accumulated_RGB, accumulated_OF = 0, 0 
             if ret == True:
                 num_frames += 1 
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                img_id = num_frames
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) 
                 rgb_list.append(frame)
+
+                
+                #img_id = num_frames
+                #cv2.imwrite('/home/haabibi/fall_detection/fall_detection_TSN/Eye0706/img_{}.jpg'.format(str(img_id).zfill(5)), frame)
+                #if num_frames == 1:
+                #    pass
+                #else:
+                    
+                #    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+                 #   rgb_list.append(frame)
                 first_time_rgb = time.time()
             else:
+                rgb_list = rgb_list[1:]
                 inf_tic = time.time()
                 rst = make_infer(args.rgb_weights, rgb_list, rgb_net, 'RGB')
-                offsets = _get_indices(rgb_list, 'RGB')
                 inf_toc = time.time()
-                print("video {} done, total {}/{}".format(counter, counter+1, len(data_loader) ), rst.shape) 
+                print("video {} done, total {}/{}".format(counter, counter+1, len(data_loader) ), "NUM OF FRAMES: {}".format(num_frames)) 
                 counter+= 1
                 output.append(rst)
-                temp_rst = np.argmax(np.mean(rst[0], axis=0))
+                temp_rst = np.argmax(np.mean(rst, axis=0))
                 output_results[video_load[0][37:]] = temp_rst
+                accumulated_time += inf_toc - inf_tic
                 print("[output length]: ", len(output), "how long it took to infer one video: ", inf_toc-inf_tic)
                 break 
     print(output_results)
-    video_pred = [np.argmax(np.mean(x[0], axis=0)) for x in output]
-    print(video_labels, video_pred)
+    video_pred = [np.argmax(np.mean(x, axis=0)) for x in output]
     cf = confusion_matrix(video_labels, video_pred).astype(float)
     print("this is cf:" ,cf)
     cls_cnt = cf.sum(axis=1)
@@ -227,3 +237,4 @@ if __name__=="__main__":
     cls_acc = cls_hit / cls_cnt
     print(cls_acc) 
     print('Accuracy {:.02f}%'.format(np.mean(cls_acc) * 100))
+    print('Accumulated Time : ', accumulated_time / counter)
