@@ -184,7 +184,6 @@ if __name__=="__main__":
     output_results = {} 
     accumulated_time = 0 
     for video in data_loader: 
-        print(video)
         video_load = video.split(' ') #video_load: video full link 
         video_labels.append(int(video_load[1].strip()))
         cap = cv2.VideoCapture(video_load[0])
@@ -201,22 +200,12 @@ if __name__=="__main__":
                 num_frames += 1 
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) 
                 rgb_list.append(frame)
-
-                
-                #img_id = num_frames
-                #cv2.imwrite('/home/haabibi/fall_detection/fall_detection_TSN/Eye0706/img_{}.jpg'.format(str(img_id).zfill(5)), frame)
-                #if num_frames == 1:
-                #    pass
-                #else:
-                    
-                #    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-                 #   rgb_list.append(frame)
                 first_time_rgb = time.time()
             else:
                 rgb_list = rgb_list[1:]
                 inf_tic = time.time()
                 rst = make_infer(args.rgb_weights, rgb_list, rgb_net, 'RGB')
+                last_frame = rgb_list[-1] 
                 inf_toc = time.time()
                 print("video {} done, total {}/{}".format(counter, counter+1, len(data_loader) ), "NUM OF FRAMES: {}".format(num_frames)) 
                 counter+= 1
@@ -225,7 +214,9 @@ if __name__=="__main__":
                 output_results[video_load[0][37:]] = temp_rst
                 accumulated_time += inf_toc - inf_tic
                 print("[output length]: ", len(output), "how long it took to infer one video: ", inf_toc-inf_tic)
-                break 
+                break
+    cap.release()
+    cv2.destroyAllWindows()
     print(output_results)
     video_pred = [np.argmax(np.mean(x, axis=0)) for x in output]
     cf = confusion_matrix(video_labels, video_pred).astype(float)

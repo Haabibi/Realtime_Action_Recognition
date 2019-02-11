@@ -11,7 +11,7 @@ from PIL import Image
 import os 
 from threading import *
 from queue import Queue
-
+import threading
 def make_ucf():
     index_dir = '/cmsdata/hdd2/cmslab/haabibi/UCF101CLASSIND.txt'
     index_dict = {}
@@ -30,11 +30,15 @@ def make_hmdb():
             index_dict.update({int(s[0]): s[1]})
     return index_dict
 
-def make_infer(incoming_frames, net, style):
+def make_infer(incoming_frames, net, style, gpus):
+    #torch.cuda.set_device(gpus)
+    #data = data.cuda()
+    #net = net.cuda()
+    print("CURRENT GPU in make_infer: ", torch.cuda.current_device(), threading.currentThread().getName(), style) 
     net.float() 
     net.eval()
     transformed_frames = transform(incoming_frames, net, style)
-    rst = eval_video(transformed_frames, 3 if style=='RGB' else 10, net, style)
+    rst = eval_video(transformed_frames, 3 if style=='RGB' else 10, net, style, gpus)
     return rst
 
 def transform(frames, net, style):
@@ -66,7 +70,9 @@ def transform(frames, net, style):
     process_data = transform(list_imgs)
     return process_data
 
-def eval_video(data, length, net, style): 
+def eval_video(data, length, net, style, gpus): 
+    torch.cuda.set_device(gpus)
+    print("CURRENT GPU in eval_vid: ", torch.cuda.current_device(), threading.currentThread().getName(), style) 
     data = data.cuda()
     net = net.cuda()
     input_var = torch.autograd.Variable(data.view(-1, length , data.size(1), data.size(2)), volatile=True)
@@ -82,25 +88,52 @@ def get_indices(frames, style):
     offsets = np.array([int(tick / 2.0 + tick * x) for x in range(args.test_segments)])
     return offsets
 
-def get_frames_and_run(frame_queue, net, style, output_list):
+def get_frames_and_get_ready(frame_queue, net, style, odd_queue_with_items, even_queue_with_items):
     frame_list = [] 
     i = 0
+    odd_even = 0 
     while True:
-        (frame, ret, num_frames) = frame_queue.get()
+        (frame, ret, num_frames, label) = frame_queue.get()
         if ret == True:
             frame_list.append(frame)
             i += 1
-            print("[f{}] number of frames in frame_list: {}".format(i, len(frame_list)), (frame.shape, ret))
+            #print("[f{}] number of frames in frame_list: {}".format(len(frame_list), len(frame_list)), (frame.shape, ret))
         if ret == False:
             print(" I & LEN : ", len(frame_list), i)
-            # SPAWN THREADS FOR EACH INFERENCE
-             
-            rst = make_infer(frame_list[:i], net, style)
-            final_rst = np.argmax(np.mean(rst, axis=0))
+            odd_even += 1 
+            if odd_even % 2 == 1: 
+                odd_queue_with_items.put((frame_list, label))
+            else:
+                even_queue_with_items.put((frame_list, label))
+            #queue_with_items.put((frame_list, label))
+            print("[Qsize]:", odd_queue_with_items.qsize(), even_queue_with_items.qsize())
             frame_list = []
-            i = 0
-            output_list.append((final_rst, ret))
-            print("[OUTPUT LIST]: " , len(output_list), final_rst, make_ucf()[final_rst])
+
+def put_rst_in_final_list(queue_with_items, net, style, output_rst, output_labels, gpus):
+    
+    while True:
+        torch.cuda.set_device(gpus)
+        print("CURRENT GPU in [put_rst_in_final_list]: ", torch.cuda.current_device(), threading.currentThread().getName(), style) 
+        stack_of_frames, label = queue_with_items.get()
+        print("BEFORE MAKING INFERENCE? And wht's the label?", label) 
+        rst = make_infer(stack_of_frames, net, style, gpus)
+        final_rst = np.argmax(np.mean(rst, axis=0))
+        print("AFTER MAKING INFERENCE? And what's final rst?", final_rst) 
+        output_rst.append(final_rst)
+        output_labels.append(label)
+        print("OUTPUT LIST LENGTHS: ", len(output_rst), len(output_labels))
+
+        
+
+            # SPAWN THREADS FOR EACH INFERENCE
+            #thread1 = Thread(name='Infer', target=make_infer, args=(frame_list[:i], net, style))         
+            #thread1.start() 
+            #rst = make_infer(frame_list[:i], net, style)
+            #final_rst = np.argmax(np.mean(rst, axis=0))
+            #frame_list = []
+            #i = 0
+            #output_list.append((final_rst, ret))
+            #print("[OUTPUT LIST]: " , len(output_list), final_rst, make_ucf()[final_rst])
 
 
 
@@ -158,7 +191,13 @@ if __name__=="__main__":
     base_dict = {'.'.join(k.split('.')[1:]): v for k,v in list(of_checkpoint['state_dict'].items())}
     of_net.load_state_dict(base_dict)
     
-    output_rst, video_labels = [], [] 
+    cuda.init()
+    #######CHECK GPU STATUS#######
+    print("NUM OF DEVICES: ", cuda.Device.count())
+    gpu_list = [ i for i in range(cuda.Device.count())]
+    print("THIS IS GPU LIST: ", gpu_list)
+    
+    output_rst, output_labels, video_labels = [], [], [] 
     counter = 0 
     output_results = {} 
     accumulated_time = 0 
@@ -166,11 +205,13 @@ if __name__=="__main__":
     video_data = open('../tsn-pytorch/ucf101_file_lists/video_101classes.txt', 'r')
     data_loader = video_data.readlines()
 
-    frame_queue, output_queue = Queue(maxsize=0), Queue(maxsize=0)
+    frame_queue, odd_queue_with_items, even_queue_with_items = Queue(maxsize=0), Queue(maxsize=0),Queue(maxsize=0) 
     final_output_list = []
     
-    jobs = [ Thread(name='Inference certain number of frames and output rst to Queue', target=get_frames_and_run, args=(frame_queue, rgb_net, 'RGB', final_output_list))]
-            # Thread(name='Fuse scores of all segments and output the final score', target=fuse_all_scores, args=(output_queue, final_output_list))]
+    jobs = [ Thread(name='Cut the frames and put the stack in the queue to get ready for inference', target=get_frames_and_get_ready, args=(frame_queue, rgb_net, 'RGB', odd_queue_with_items, even_queue_with_items)),
+             Thread(name='Inferencing odd items in the queue', target=put_rst_in_final_list, args=(odd_queue_with_items, rgb_net, 'RGB', output_rst, output_labels, 1 )),
+            Thread(name='Inferencing even items in the queue', target=put_rst_in_final_list, args=(even_queue_with_items, rgb_net, 'RGB', output_rst, output_labels, 2 )) ]
+             #Thread(name='Put each item in 2 threads', target=put_rst_in_final_list, args=()]
 
     for job in jobs: 
         job.start() 
@@ -178,7 +219,8 @@ if __name__=="__main__":
     for video in data_loader:
         line_list = video.split(' ')
         video_full_link = line_list[0]
-        video_labels.append(int(line_list[1].strip()))
+        label = int(line_list[1].strip())
+        video_labels.append(label)
         num_frames = 0  
         cap = cv2.VideoCapture(video_full_link)
         while(cap.isOpened()):
@@ -186,20 +228,17 @@ if __name__=="__main__":
             if ret == True: 
                 num_frames += 1 
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                frame_queue.put((frame, ret, num_frames))
+                frame_queue.put((frame, ret, num_frames, label))
                 shape = frame.shape
             else:
-                frame_queue.put((np.zeros(shape), ret, num_frames))
+                frame_queue.put((np.zeros(shape), ret, num_frames, label))
                 print("Finished Reading Video {} with {} number of frames.".format(video_full_link.split('/')[-1], num_frames))
                 break
         
-    for job in jobs:
-        job.join()
-    print("Terminating.. ")
-
     cap.release()
     cv2.destroyAllWindows()
-    cf = confusion_matrix(video_labels, final_output_list).astype(float)
+    cf = confusion_matrix(output_labels, output_rst).astype(float)
+    #cf = confusion_matrix(video_labels, final_output_list).astype(float)
     print("This is cf: ", cf)
     cls_cnt = cf.sum(axis=1)
     print("This is cls_cnt: ", cls_cnt)
@@ -208,6 +247,9 @@ if __name__=="__main__":
     cls_acc = cls_hit / cls_cnt 
     print('Accuracy {:.02f}%'.format(np.mean(cls_acc) * 100))
 
+    for job in jobs:
+        job.join()
+    print("Terminating.. ")
 
 
 
