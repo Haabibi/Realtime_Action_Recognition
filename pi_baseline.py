@@ -8,7 +8,8 @@ from redis import Redis
 import pickle
 import torch
 from models import TSN
-from baseline1_test_rgb import make_ucf, make_infer
+from baseline_rpc_rgb import make_ucf, make_infer
+from sklearn.metrics import confusion_matrix 
 
 def load_image(video_path, queue):
     video_data = open(video_path, 'r')
@@ -24,7 +25,6 @@ def load_image(video_path, queue):
             if ret == True:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 frame_list.append(frame)
-                #frame = frame.tostring()
             else:
                 queue.put((video_id, frame_list, video_label))
                 frame_list = []
@@ -33,22 +33,21 @@ def load_image(video_path, queue):
 def network_sender(queue):
     while True:
         (video_id, frame_list, video_label) = queue.get()
-        #(video_id, frame_list, len(frame_list)) = queue.get()
-        #print("WHAT I GOT: ", queue.get())
         print("BEFORE SENDING IT TO REDIS: ", redis.llen('Key'))
         send('Key', (video_id, frame_list, video_label)) 
-        print("WHAT I AM SENDING: ",(video_id, len(frame_list))) 
+        print("Item that was just sent: ",(video_id, len(frame_list))) 
 
 def receive_and_run_inference(rgb_net):
     counter = 0 
     while True:
         if redis.llen('Key') > 0:
             (video_id, frame_list, video_label) = pickle.loads(redis.lpop('Key')) 
-            rst = make_infer(args.rgb_weights, frame_list, rgb_net, 'RGB')
+            rst = make_infer(args.rgb_weights, frame_list, rgb_net, 'RGB', args.test_segments, num_class)
             temp_rst = np.argmax(np.mean(rst, axis=0))
-            output.append(rst) 
+            output.append(temp_rst) 
             label.append(video_label)
-            #print("RECEIVE & RUN: " ,video_id, num_frames, len(frame_list), frame_list[0].shape)
+            
+            print("RECEIVE & RUN: ", video_id, temp_rst, video_label)
 
 
 if __name__ == '__main__':
@@ -60,6 +59,7 @@ if __name__ == '__main__':
     parser.add_argument('--arch',  type=str, default='BNInception')
     parser.add_argument('--crop_fusion_type', type=str, default='avg', choices=['avg', 'max', 'topk'])
     parser.add_argument('--dropout', type=float, default=0.7)
+    parser.add_argument('--test_segments', type=int, default=25)
     args = parser.parse_args()
 
     redis_queue, finished_queue = Queue(), Queue()
@@ -85,7 +85,9 @@ if __name__ == '__main__':
     base_dict = {'.'.join(k.split('.')[1:]): v for k,v in list(rgb_checkpoint['state_dict'].items())}
     rgb_net.load_state_dict(base_dict)
     
-
+    output = []
+    label = []
+    
     if args.hub_device == 'Hub':
         jobs = [ Thread(target=receive_and_run_inference, args=(rgb_net, ))]
     else:
@@ -94,3 +96,11 @@ if __name__ == '__main__':
  
     [job.start() for job in jobs]
     [job.join() for job in jobs]
+    print("Terminating..")
+    if len(output) == 101:
+        cf = confusion_matrix(label, output).astype(float)
+        cls_cnt = cf.sum(axis=1)
+        cls_hit = np.diag(cf)
+        cls_acc = cls_hit / cls_cnt 
+        print('Accuracy {:.02f}%'.format(np.mean(cls_acc) * 100))
+   

@@ -73,7 +73,6 @@ class GroupNormalize(object):
         for t, m, s in zip(tensor, rep_mean, rep_std):
             t.sub_(m).div_(s)
 
-        print("FROM GROUP NORMALIZE: ", type(tensor), tensor.shape, torch.min(tensor), torch.max(tensor), torch.std(tensor), torch.mean(tensor)) 
         return tensor
 
 
