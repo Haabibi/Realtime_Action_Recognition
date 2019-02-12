@@ -1,7 +1,7 @@
 from queue import Queue
 from data_sender import send
 import argparse
-from threading import Thread
+from threading import Thread, Event
 import cv2
 import numpy as np
 from redis import Redis
@@ -11,7 +11,7 @@ from models import TSN
 from baseline_rpc_rgb import make_ucf, make_infer
 from sklearn.metrics import confusion_matrix 
 
-def load_image(video_path, queue):
+def load_image(video_path, queue, event):
     video_data = open(video_path, 'r')
     data_loader = video_data.readlines()
     frame_list = []
@@ -26,16 +26,21 @@ def load_image(video_path, queue):
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 frame_list.append(frame)
             else:
-                queue.put((video_id, frame_list, video_label))
+                queue.put((video_id, frame_list, int(video_label)))
                 frame_list = []
                 break
+    event.set()
 
-def network_sender(queue):
+def network_sender(queue, event):
     while True:
         (video_id, frame_list, video_label) = queue.get()
         print("BEFORE SENDING IT TO REDIS: ", redis.llen('Key'))
         send('Key', (video_id, frame_list, video_label)) 
         print("Item that was just sent: ",(video_id, len(frame_list))) 
+        if queue.qsize() == 0 and event.is_set():
+            print("Terminating the sender.. " )
+            send('some_key', True)
+            break
 
 def receive_and_run_inference(rgb_net):
     counter = 0 
@@ -48,6 +53,9 @@ def receive_and_run_inference(rgb_net):
             label.append(video_label)
             
             print("RECEIVE & RUN: ", video_id, temp_rst, video_label)
+        if redis.llen('Key') == 0 and redis.llen('some_key') > 0:
+           print("Hub Terminating.. ") 
+           break
 
 
 if __name__ == '__main__':
@@ -63,6 +71,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     redis_queue, finished_queue = Queue(), Queue()
+    need_stop = Event()
     
     host_address = '147.46.219.146'
     redis = Redis(host_address)
@@ -91,16 +100,17 @@ if __name__ == '__main__':
     if args.hub_device == 'Hub':
         jobs = [ Thread(target=receive_and_run_inference, args=(rgb_net, ))]
     else:
-        jobs = [ Thread(target=load_image, args=(args.video_path, redis_queue)),
-                 Thread(target=network_sender, args=(redis_queue,))] 
+        jobs = [ Thread(target=load_image, args=(args.video_path, redis_queue, need_stop)),
+                 Thread(target=network_sender, args=(redis_queue, need_stop))] 
  
     [job.start() for job in jobs]
     [job.join() for job in jobs]
     print("Terminating..")
-    if len(output) == 101:
+    if args.hub_device == 'Hub':
         cf = confusion_matrix(label, output).astype(float)
         cls_cnt = cf.sum(axis=1)
         cls_hit = np.diag(cf)
+        print("CLS CNT, HIT", cls_cnt, cls_hit)
         cls_acc = cls_hit / cls_cnt 
         print('Accuracy {:.02f}%'.format(np.mean(cls_acc) * 100))
    
