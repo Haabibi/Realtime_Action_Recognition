@@ -9,5 +9,4 @@ def dump(tuple):
     return pickle.dumps(tuple, protocol=2)
 
 def send(key, item):
-    #print("[PUSHED KEY]", key)
     redis.rpush(key, dump(item))
