@@ -45,6 +45,7 @@ def eval_video(data, length, net, style, test_seg, num_class):
     return output
 
 def _get_indices(data, style, test_seg):
+    print("FROM GET INDICES: ", type(data))
     new_length = 1 if style == 'RGB' else 5 
     tick =  (len(data) - new_length +1) / float(test_seg)
     offsets = np.array([int(tick / 2.0 + tick * x) for x in range(test_seg)])
@@ -53,6 +54,7 @@ def _get_indices(data, style, test_seg):
 def _get_item(data, net, style, test_seg):
     list_imgs = []
     offsets = _get_indices(data, style, test_seg)
+    print(offsets)
     cropping = torchvision.transforms.Compose([
         GroupOverSample(net.input_size, net.scale_size)
     ]) 

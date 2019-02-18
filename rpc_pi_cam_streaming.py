@@ -1,3 +1,4 @@
+import time
 from queue import Queue
 from data_sender import send
 import argparse
@@ -6,24 +7,19 @@ import cv2
 import numpy as np
 from redis import Redis
 import pickle
-import torch
-from models import TSN
-from baseline_rpc_rgb import make_ucf, make_infer
-from sklearn.metrics import confusion_matrix 
-
-def streaming(video_path, event):
+from baseline_rpc_rgb import make_ucf, make_hmdb,  make_infer 
+def streaming():
+    import picamera
+    import picamera.array
     while True:
-        cap = cv2.VideoCapture(video_path)
-        while(cap.isOpened()):
-            ret, frame = cap.read()
-            if ret == True:
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                send('Frame', frame)
-            else:
-                print("End of the streaming") 
-                send('End', ret)
-                break
-        event.is_set()
+        with picamera.PiCamera() as camera:
+            camera.framerate = 40 
+            camera.resolution = (224, 224) 
+            with picamera.array.PiRGBArray(camera) as stream:
+                camera.capture(stream, format='bgr')
+                image = stream.array
+                send('Frame', image)
+   # event.is_set()
 
 def receive_frames(queue, redis, event):
     while True:
@@ -38,15 +34,15 @@ def receive_and_run_inference(rgb_net, queue):
     frames_to_run = []
     while True:
         if queue.qsize()>0:
-            frames_to_run.append(queue.get())
-            print("LEN OF FRAMES TO RUN: ", len(frames_to_run))
-            if len(frames_to_run) == 40: 
-                print("MADE IT TON INF: ")
+            frame = cv2.cvtColor(queue.get(), cv2.COLOR_BGR2RGB)
+            frames_to_run.append(frame)
+            if len(frames_to_run) == 2: 
+                run_before = time.time()
                 rst = make_infer(args.rgb_weights, frames_to_run, rgb_net, 'RGB', args.test_segments, num_class)
-                
-                frames_to_run = frames_to_run[40:]
+                frames_to_run = frames_to_run[1:]
                 temp_rst = np.argmax(np.mean(rst, axis=0))
-                print(make_ucf()[temp_rst])
+                run_after = time.time()
+                print("RESULT OF INFERENCE: ", make_hmdb()[temp_rst], "INFERENCE TIME: ",  run_after-run_before)
         if redis.llen('End') > 0 and queue.qsize() ==0:
            print("Hub Terminating.. ") 
            break
@@ -54,10 +50,9 @@ def receive_and_run_inference(rgb_net, queue):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Sending streaming images from pi to hub')
-    parser.add_argument('--video_path', type=str) 
     parser.add_argument('--hub_device', type=str, help='Specify where this will be run')  
-    parser.add_argument('--rgb_weights', type=str)
     parser.add_argument('--dataset', type=str, default='ucf101')
+    parser.add_argument('--rgb_weights',  type=str)
     parser.add_argument('--arch',  type=str, default='BNInception')
     parser.add_argument('--crop_fusion_type', type=str, default='avg', choices=['avg', 'max', 'topk'])
     parser.add_argument('--dropout', type=float, default=0.7)
@@ -70,15 +65,17 @@ if __name__ == '__main__':
         num_class = 51 
     else:
         raise ValueError('Unknown dataset' + args.dataset)
-
-    rgb_net = TSN(num_class, 1, 'RGB',
-                  base_model=args.arch,
-                  consensus_type=args.crop_fusion_type,
-                  dropout=args.dropout)
-    rgb_checkpoint = torch.load(args.rgb_weights)
-    print("model epoch {} best prec@1: {}".format(rgb_checkpoint['epoch'], rgb_checkpoint['best_prec1']))
-    base_dict = {'.'.join(k.split('.')[1:]): v for k,v in list(rgb_checkpoint['state_dict'].items())}
-    rgb_net.load_state_dict(base_dict)
+    if args.hub_device == 'Hub':
+        import torch
+        from models import TSN
+        rgb_net = TSN(num_class, 1, 'RGB',
+                      base_model=args.arch,
+                      consensus_type=args.crop_fusion_type,
+                      dropout=args.dropout)
+        rgb_checkpoint = torch.load(args.rgb_weights)
+        print("model epoch {} best prec@1: {}".format(rgb_checkpoint['epoch'], rgb_checkpoint['best_prec1']))
+        base_dict = {'.'.join(k.split('.')[1:]): v for k,v in list(rgb_checkpoint['state_dict'].items())}
+        rgb_net.load_state_dict(base_dict)
     
     output = []
     label = []
@@ -95,12 +92,13 @@ if __name__ == '__main__':
         jobs = [ Thread(target=receive_and_run_inference, args=(rgb_net, redis_queue)),
                  Thread(target=receive_frames, args=(redis_queue, redis, need_stop))]
     else:
-        jobs = [ Thread(target=streaming, args=(args.video_path, need_stop))]
+        jobs = [ Thread(target=streaming)]
  
     [job.start() for job in jobs]
     [job.join() for job in jobs]
     print("Terminating..")
     if args.hub_device == 'Hub':
+        from sklearn.metrics import confusion_matrix 
         cf = confusion_matrix(label, output).astype(float)
         cls_cnt = cf.sum(axis=1)
         cls_hit = np.diag(cf)
