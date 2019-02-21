@@ -53,12 +53,21 @@ def receive_and_save(rgb_net, redis):
     while True:
         initial_time = time.time()
         if redis.llen('Frame') > 0:
+            start_redis = time.time()
             incoming_video = redis.lpop('Frame')
-            print("TYPE OF FRAME: ", type(incoming_video))
+            stop_redis = time.time()
+            print("TYPE OF FRAME: ", type(incoming_video), "Popping Time: ", stop_redis-start_redis)
+            start_load = time.time()
             video = pickle.loads(incoming_video)
+            end_load = time.time()
             f = open('./video/%d.h264'%counter, 'wb+')
+            opened = time.time()
             f.write(video)
+            write_file = time.time()
             #f.write(video.encode('utf-8'))
+            print("[Pickle Loading Time: ]", end_load-start_load)
+            print("[Video Open Time: ]", opened-end_load)
+            print("[Video Write Time: ]", write_file - opened)
             counter += 1 
 
 #### HUB ####             
@@ -73,17 +82,27 @@ def read_file_and_run():
         if LENGTH > 1 and LENGTH > counter:
             item = SORTED_DIR[counter]
             PATH = os.path.join('./video', item)
+            start_capture = time.time()
             cap = cv2.VideoCapture(PATH)
+            end_capture = time.time()
+            print("[VIDEO CAPTURE OF ", item, end_capture-start_capture) 
             counter += 1
             tmp_stack_frames = []
+            before_opening_cap = time.time()
             while cap.isOpened():
                 ret, frame = cap.read()
+                new_frame = time.time()
                 if ret == True:
                     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     tmp_stack_frames.append(frame)
+                    append_frame = time.time()
+                    print("[APPENDING ONE FRAME EACH]: ", append_frame-new_frame)
                 else: 
                     print("DONE READING ", item)
+                    ready_to_infer = time.time()
                     rst = make_infer(args.rgb_weights, tmp_stack_frames[1:], rgb_net, 'RGB', args.test_segments, num_class)
+                    inferred = time.time()
+                    print("[TIME WHEN ALL FRAMES ARE READY]:{}, [INF TIME]: {}".format(ready_to_infer-before_opening_cap, inferred-ready_to_infer))
                     tmp_rst = np.argmax(np.mean(rst, axis=0))
                     print(make_hmdb()[tmp_rst])
                     break
