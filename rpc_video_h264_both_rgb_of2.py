@@ -104,13 +104,14 @@ def run_rgb_queue(rgb_queue):
            rgb_frame.append(item[0])
        else: #item[1] == False
            counter += 1
-           #rst = make_infer(args.rgb_weights, rgb_frame, rgb_net, 'RGB', args.test_segments, num_class)
-           #tmp_rst = np.argmax(np.mean(rst, axis=0))
-           #rgb_frame = []
-           #if args.dataset == 'ucf101':
-           #     print("[RGB] THIS IS THE RESULT FROM OF of SECTION {}".format(counter), make_ucf()[tmp_rst])
-           #else: # args.dataset == 'hmdb51'
-           #     print("[RGB] THIS IS THE RESULT FROM OF of SECTION {}".format(counter), make_hmdb()[tmp_rst])
+           print("RGB_QUEUE LENGTH: ", len(rgb_frame))
+           rst = make_infer(args.rgb_weights, rgb_frame, rgb_net, 'RGB', args.test_segments, num_class)
+           tmp_rst = np.argmax(np.mean(rst, axis=0))
+           rgb_frame = []
+           if args.dataset == 'ucf101':
+                print("[RGB] THIS IS THE RESULT FROM OF of SECTION {}".format(counter), make_ucf()[tmp_rst])
+           else: # args.dataset == 'hmdb51'
+                print("[RGB] THIS IS THE RESULT FROM OF of SECTION {}".format(counter), make_hmdb()[tmp_rst])
 
 def get_indices(length, num_seg, new_length):
     tick = (length - new_length + 1) / float(num_seg)
@@ -132,10 +133,13 @@ def run_of_queue(of_queue, net):
     ])
     
     while True:
+        beginning = time.time()
         of_frame = []
         item = of_queue.get()  # item == a stack of rgb frames yet to be optical-flow-extracted 
         new_length = 5 #how many consecutive optical frames to read 
+        print("OF: " , len(item))
         offsets = get_indices(len(item), args.test_segments, new_length)
+        print("OF: " , offsets)
         extracted_optical_flow = []
         ####NAIVE WAY TO EXTRACT FLOWS####
         if offsets[1] - offsets[0] < new_length:
@@ -169,7 +173,8 @@ def run_of_queue(of_queue, net):
             print("=====[OF]===== \n THIS IS THE RESULT FROM OF of SECTION {}".format(counter), make_ucf()[tmp_rst])
         else: # args.dataset == 'hmdb51'
             print("[OF] THIS IS THE RESULT FROM OF of SECTION {}".format(counter), make_hmdb()[tmp_rst])
-
+        ending_time = time.time()
+        print("HOW LONG IT TOOK to make ONE INFERENCE IN TOTAL OF SECTION {}".format(counter), ending_time-beginning)
 
 
 

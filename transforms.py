@@ -5,7 +5,7 @@ import numpy as np
 import numbers
 import math
 import torch
-
+import time
 
 class GroupRandomCrop(object):
     def __init__(self, size):
@@ -66,13 +66,15 @@ class GroupNormalize(object):
         self.std = std
 
     def __call__(self, tensor):
+        time_1 = time.time()
         rep_mean = self.mean * (tensor.size()[0]//len(self.mean))
         rep_std = self.std * (tensor.size()[0]//len(self.std))
 
         # TODO: make efficient
         for t, m, s in zip(tensor, rep_mean, rep_std):
             t.sub_(m).div_(s)
-
+        time_2 = time.time()
+        print( "GROUP NORMALIZE : ", time_2-time_1)
         return tensor
 
 
@@ -102,7 +104,7 @@ class GroupOverSample(object):
             self.scale_worker = None
 
     def __call__(self, img_group):
-
+        time_1 = time.time()
         if self.scale_worker is not None:
             img_group = self.scale_worker(img_group)
 
@@ -126,7 +128,8 @@ class GroupOverSample(object):
 
             oversample_group.extend(normal_group)
             oversample_group.extend(flip_group)
-        
+        time_2 = time.time()
+        print("TIME FROM GROUPOVERSAMPLE: " , time_2 - time_1)
         
         
         return oversample_group
@@ -259,14 +262,23 @@ class Stack(object):
         self.roll = roll
 
     def __call__(self, img_group):
+        time_1 = time.time()
         if img_group[0].mode == 'L':
-            return np.concatenate([np.expand_dims(x, 2) for x in img_group], axis=2)
+            val = np.concatenate([np.expand_dims(x, 2) for x in img_group], axis=2)
+            time_2 = time.time()
+            print("TIME FROM STACK: " , time_2 - time_1)
+            return val
         elif img_group[0].mode == 'RGB':
             if self.roll:
-                return np.concatenate([np.array(x)[:, :, ::-1] for x in img_group], axis=2)
+                val = np.concatenate([np.array(x)[:, :, ::-1] for x in img_group], axis=2)
+                time_2 = time.time()
+                print("TIME FROM STACK: " , time_2 - time_1)
+                return val
             else:
-                return np.concatenate(img_group, axis=2)
-
+                val = np.concatenate(img_group, axis=2)
+                time_2 = time.time()
+                print("TIME FROM STACK: " , time_2 - time_1)
+                return val
 
 class ToTorchFormatTensor(object):
     """ Converts a PIL.Image (RGB) or numpy.ndarray (H x W x C) in the range [0, 255]
@@ -275,6 +287,7 @@ class ToTorchFormatTensor(object):
         self.div = div
 
     def __call__(self, pic):
+        time_1 = time.time()
         if isinstance(pic, np.ndarray):
             # handle numpy array
             img = torch.from_numpy(pic).permute(2, 0, 1).contiguous()
@@ -286,8 +299,10 @@ class ToTorchFormatTensor(object):
             # yikes, this transpose takes 80% of the loading time/CPU
             img = img.transpose(0, 1).transpose(0, 2).contiguous()
         
-        return img.float().div(255) if self.div else img.float()
-
+        val = img.float().div(255) if self.div else img.float()
+        time_2 = time.time()
+        print("TO TORCH FORMAT: ",time_2-time_1)
+        return val
 
 class IdentityTransform(object):
 
