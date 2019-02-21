@@ -9,11 +9,13 @@ from redis import Redis
 import pickle
 import torch
 from models import TSN
-from baseline_rpc_rgb import make_ucf, make_infer, make_hmdb
+from baseline_rpc_rgb2 import make_ucf, make_infer, make_hmdb, eval_video
 from sklearn.metrics import confusion_matrix 
 import os 
 from streaming_multi import streaming 
 from multiprocessing import Process, Manager
+import torchvision
+from transforms import * 
 
 #### DEVIVCE ####
 def streaming_device():
@@ -83,13 +85,13 @@ def read_file_and_run(rgb_queue, of_queue):
                     fake_counter += 1
                     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     rgb_queue.put((frame, ret))
-                    of_queue.put((frame, ret))
-                    #opt_flow_list.append(frame)
+                    #of_queue.put((frame, ret))
+                    opt_flow_list.append(frame)
                 else:
                     print("FAKE COUNTER", fake_counter, ret)
                     rgb_queue.put((frame, ret))
-                    of_queue.put((frame, ret))
-                    #of_queue.put(opt_flow_list)
+                    #of_queue.put((frame, ret))
+                    of_queue.put(opt_flow_list)
                     break
 
 
@@ -110,13 +112,68 @@ def run_rgb_queue(rgb_queue):
            #else: # args.dataset == 'hmdb51'
            #     print("[RGB] THIS IS THE RESULT FROM OF of SECTION {}".format(counter), make_hmdb()[tmp_rst])
 
-def run_of_queue(of_queue):
-    of_frame = []
-    tmp_of_frame = []
+def get_indices(length, num_seg, new_length):
+    tick = (length - new_length + 1) / float(num_seg)
+    offsets = np.array([int(tick / 2.0 + tick * x) for x in range(num_seg)])
+    return offsets
+
+def run_of_queue(of_queue, net):
     i = 1
     counter = 0
+
+    cropping = torchvision.transforms.Compose([
+        GroupOverSample(net.input_size, net.scale_size)
+    ]) 
+    transform = torchvision.transforms.Compose([ 
+        cropping,
+        Stack(True),
+        ToTorchFormatTensor(False),
+        GroupNormalize(net.input_mean, net.input_std)
+    ])
+    
     while True:
-        item = of_queue.get()
+        of_frame = []
+        item = of_queue.get()  # item == a stack of rgb frames yet to be optical-flow-extracted 
+        new_length = 5 #how many consecutive optical frames to read 
+        offsets = get_indices(len(item), args.test_segments, new_length)
+        extracted_optical_flow = []
+        ####NAIVE WAY TO EXTRACT FLOWS####
+        if offsets[1] - offsets[0] < new_length:
+            for i in range(len(item)-1):
+                [flow_x, flow_y] = streaming(item[i], item[i+1])
+                extracted_optical_flow.append(streaming(item[i], item[i+1]))
+                rst = make_infer(args.of_weights, extracted_optical_flow, of_net, 'Flow', args.test_segments, num_class)
+                tmp_rst = np.argmax(np.mean(rst, axis=0))
+                print("RESULT OF Optical Flow: 1  = ", make_ucf()[tmp_rst])
+        ####SPECIAL PART####
+        else: #when we need a clever way to extract optical flow frames
+            for index in offsets:
+                for i in range(new_length):
+                    start_streaming = time.time()
+                    [flow_x , flow_y] = streaming(item[index+i], item[index+(i+1)])
+                    end_streaming = time.time()
+                    x_img, y_img = Image.fromarray(flow_x).convert('L'), Image.fromarray(flow_y).convert('L')
+                    time_array = time.time()
+                    of_frame.extend([x_img, y_img])
+                    print("LEN OF OF", len(of_frame), "streaming time:", end_streaming-start_streaming, "Array to IMG: ", time_array-end_streaming)
+            transform_time_1 = time.time()
+
+            process_data = transform(of_frame)
+            transform_time_2 = time.time()
+            rst = eval_video(process_data, 2 * new_length, net, 'Flow', args.test_segments, num_class)
+            eval_time_1 = time.time()
+            tmp_rst = np.argmax(np.mean(rst, axis=0))
+            print("TRANSFORMING TIME: ", transform_time_2-transform_time_1, eval_time_1-transform_time_2)
+        counter += 1
+        if args.dataset == 'ucf101':
+            print("=====[OF]===== \n THIS IS THE RESULT FROM OF of SECTION {}".format(counter), make_ucf()[tmp_rst])
+        else: # args.dataset == 'hmdb51'
+            print("[OF] THIS IS THE RESULT FROM OF of SECTION {}".format(counter), make_hmdb()[tmp_rst])
+
+
+
+
+'''
         if item[1] == False:
             print("IS ITEM TRUE OR FALSE???", item[1])
         tmp_of_frame.append(item)
@@ -144,7 +201,7 @@ def run_of_queue(of_queue):
             end_streaming = time.time()
             i += 1
             print("OF_FRAME length: ", len(of_frame), end_streaming-start_streaming)
-
+'''
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Sending streaming images from pi to hub')
     parser.add_argument('--video_path', type=str) 
@@ -201,7 +258,7 @@ if __name__ == '__main__':
         jobs = [ Thread(target=receive_and_save, args=(rgb_net, redis)),
                  Thread(target=read_file_and_run, args=(rgb_queue, of_queue)),
                  Thread(target=run_rgb_queue, args=(rgb_queue, )),
-                 Thread(target=run_of_queue, args=(of_queue, ))]
+                 Thread(target=run_of_queue, args=(of_queue, of_net ))]
     else:
         jobs = [ Thread(target=streaming, args=(args.video_path, need_stop))]
 

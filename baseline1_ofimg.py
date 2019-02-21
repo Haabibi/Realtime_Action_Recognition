@@ -106,7 +106,7 @@ if __name__=="__main__":
     parser.add_argument('--gpus', nargs='+', type=int, default=None)
     parser.add_argument('--flow_prefix', type=str, default='')
     parser.add_argument('--q_size', type=int, default=40)
-    parser.add_argument('--num_repeat', type=int, default=10)
+    parser.add_argument('--num_repeat', type=int, default=1)
     parser.add_argument('--vid_dir', type=str) 
     parser.add_argument('--sliding_window', type=int, default=40)
 
@@ -148,7 +148,8 @@ if __name__=="__main__":
         ret, frame = cap.read()
         accumulated_time_for_of = 0 
         if ret == True:
-            _tmp_of.append(frame)
+            frame2 = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            _tmp_of.append(frame2)
             first_tic = time.time()
             if len(_tmp_of) >= 2:
                 first_time_rgb = time.time()
@@ -156,9 +157,11 @@ if __name__=="__main__":
                 of_list.append(streaming(_tmp_of[0], _tmp_of[1], 'tvl1'))
                 streaming_toc = time.time()
                 streaming_latency += (streaming_toc - streaming_tic)
+                counter += 1
                 print("How many in of_list: ", len(of_list), streaming_toc-streaming_tic)
                 _tmp_of.pop(0)
-            if len(of_list) == args.q_size :
+            '''
+            if len(of_list) == 161 :
                 loading_frames += (time.time() - first_tic)
                 print("[HOW MANY IT TOOK TO MAKE LIST]: ", streaming_latency) 
                 streaming_latency = 0
@@ -178,7 +181,7 @@ if __name__=="__main__":
                         video_pred = np.argmax(np.mean(of_inference[0], axis=0))
                         arg_max_time = time.time() 
                         output_dict[counter] = make_ucf()[video_pred]
-                        print(make_ucf()[video_pred])
+                        print(make_ucf()[video_pred], video_pred)
                         answer_time = time.time() 
                         accumulated_time_for_of += (of_inf_toc-of_inf_tic)
                         print("inference of in {:.5f}, video pred arg_max in {:.5f}, getting the result in {:.5f} ".format(of_inf_toc-of_inf_tic, arg_max_time-of_inf_toc, answer_time-arg_max_time))
@@ -187,10 +190,38 @@ if __name__=="__main__":
 
                 accumulated_time_for_of = 0 
                 of_list = of_list[args.sliding_window: ]
-                 
+           '''      
         else:
+            #loading_frames += (time.time() - first_tic)
+            print("[HOW LONG IT TOOK TO MAKE LIST]: ", streaming_latency, streaming_latency/counter) 
+            #streaming_latency = 0
+            got_here_rgb = time.time() 
+            print("[[{}] time when all frames are ready to be run]: ".format(counter), got_here_rgb-first_time_rgb)
+            for i in range(args.num_repeat+1):
+                if i == 0:
+                    cold_case_tic = time.time()
+                    make_infer(args.of_weights, of_list, of_net, 'Flow')
+                    cold_case_toc = time.time()
+                    print("cold case inf time: ", cold_case_toc-cold_case_tic)
+                else: 
+                    of_inf_tic = time.time() 
+                    of_inference = make_infer(args.of_weights, of_list, of_net, 'Flow')
+                    of_inf_toc = time.time() 
+                    video_pred = np.argmax(np.mean(of_inference[0], axis=0))
+                    arg_max_time = time.time() 
+                    output_dict[counter] = make_ucf()[video_pred]
+                    print(make_ucf()[video_pred], video_pred)
+                    answer_time = time.time() 
+                    accumulated_time_for_of += (of_inf_toc-of_inf_tic)
+                    print("inference of in {:.5f}, video pred arg_max in {:.5f}, getting the result in {:.5f} ".format(of_inf_toc-of_inf_tic, arg_max_time-of_inf_toc, answer_time-arg_max_time))
+            print("accumulated time for of: {:.5f}".format(accumulated_time_for_of/(args.num_repeat)))
+            accumulated_time += accumulated_time_for_of/args.num_repeat
+
+            accumulated_time_for_of = 0 
+            of_list = of_list[args.sliding_window: ]
+            
             print("[END_TO_END LATENCY]: ", time.time()-before)
-            print("[LOADING FRAMES AVG]: ", loading_frames/counter)
+            #print("[LOADING FRAMES AVG]: ", loading_frames)
             print("[AVG INF TIME]: ", accumulated_time/counter)
             print("[OUTPUT RESULT]: ", output_dict)
             print("done reading")

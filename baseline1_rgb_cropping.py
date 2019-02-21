@@ -76,6 +76,7 @@ def make_infer(weights, batched_array, net, style):
     net.eval() 
     net = net.cuda() 
     eval_vid_tic = time.time()
+    print("this is how long  the data is. should be same witih the frame numbers", len(batched_array))
     data = _get_item(batched_array, net, style) 
     time_data_toc = time.time()
     rst = eval_video(data, 3 if style =="RGB" else 5, net, style) 

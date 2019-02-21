@@ -119,7 +119,7 @@ TSN Configurations:
         super(TSN, self).train(mode)
         count = 0
         if self._enable_pbn:
-            print("Freezing BatchNorm2D except the first one.")
+            #print("Freezing BatchNorm2D except the first one.")
             for m in self.base_model.modules():
                 if isinstance(m, nn.BatchNorm2d):
                     count += 1

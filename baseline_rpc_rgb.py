@@ -36,7 +36,7 @@ def eval_video(data, length, net, style, test_seg, num_class):
     net_tic = time.time()
     rst = net(input_var)
     net_toc = time.time()
-    print("INF TIME: ", net_toc-net_tic)
+    #print("INF TIME: ", net_toc-net_tic)
     #torch.cuda.nvtx.range_pop()
     time_run_net = time.time()
     rst_data = rst.data.cpu().numpy().copy()
@@ -45,10 +45,11 @@ def eval_video(data, length, net, style, test_seg, num_class):
     return output
 
 def _get_indices(data, style, test_seg):
-    print("FROM GET INDICES: ", type(data))
+    #print("FROM GET INDICES: ", type(data))
     new_length = 1 if style == 'RGB' else 5 
     tick =  (len(data) - new_length +1) / float(test_seg)
     offsets = np.array([int(tick / 2.0 + tick * x) for x in range(test_seg)])
+    print(tick, offsets, len(data), "THIS IS THE LENGTH OF DATA")
     return offsets
 
 def _get_item(data, net, style, test_seg):
@@ -75,6 +76,7 @@ def _get_item(data, net, style, test_seg):
             list_imgs.extend([im]) 
         if style == 'Flow':
             for i in range(5):
+                print("HERE IN SEG_IND: ", i)
                 seg_img = data[seg_ind + i] 
                 x_img = Image.fromarray(seg_img[0])
                 y_img = Image.fromarray(seg_img[1])
