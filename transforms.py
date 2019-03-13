@@ -74,7 +74,7 @@ class GroupNormalize(object):
         for t, m, s in zip(tensor, rep_mean, rep_std):
             t.sub_(m).div_(s)
         time_2 = time.time()
-        print( "GROUP NORMALIZE : ", time_2-time_1)
+        #print( "GROUP NORMALIZE : ", time_2-time_1)
         return tensor
 
 
@@ -129,7 +129,7 @@ class GroupOverSample(object):
             oversample_group.extend(normal_group)
             oversample_group.extend(flip_group)
         time_2 = time.time()
-        print("TIME FROM GROUPOVERSAMPLE: " , time_2 - time_1)
+        #print("TIME FROM GROUPOVERSAMPLE: " , time_2 - time_1)
         
         
         return oversample_group
@@ -266,18 +266,18 @@ class Stack(object):
         if img_group[0].mode == 'L':
             val = np.concatenate([np.expand_dims(x, 2) for x in img_group], axis=2)
             time_2 = time.time()
-            print("TIME FROM STACK: " , time_2 - time_1)
+            #print("TIME FROM STACK: " , time_2 - time_1)
             return val
         elif img_group[0].mode == 'RGB':
             if self.roll:
                 val = np.concatenate([np.array(x)[:, :, ::-1] for x in img_group], axis=2)
                 time_2 = time.time()
-                print("TIME FROM STACK: " , time_2 - time_1)
+                #print("TIME FROM STACK: " , time_2 - time_1)
                 return val
             else:
                 val = np.concatenate(img_group, axis=2)
                 time_2 = time.time()
-                print("TIME FROM STACK: " , time_2 - time_1)
+                #print("TIME FROM STACK: " , time_2 - time_1)
                 return val
 
 class ToTorchFormatTensor(object):
@@ -301,7 +301,7 @@ class ToTorchFormatTensor(object):
         
         val = img.float().div(255) if self.div else img.float()
         time_2 = time.time()
-        print("TO TORCH FORMAT: ",time_2-time_1)
+        #print("TO TORCH FORMAT: ",time_2-time_1)
         return val
 
 class IdentityTransform(object):
@@ -338,4 +338,4 @@ if __name__ == "__main__":
             mean=[.485, .456, .406],
             std=[.229, .224, .225])
     ])
-    print(trans2(color_group))
+    #print(trans2(color_group))

@@ -97,44 +97,6 @@ def get_frames_and_run(frame_queue, net, style, output_list):
             i = 0
             output_list.append((final_rst, ret))
             print("[OUTPUT LIST]: " , len(output_list), final_rst, make_ucf()[final_rst])
-            #output_queue.put((final_rst, ret))
-            #print("[OUTPUT QUEUE]: ", output_queue.qsize())
-            
-        '''
-        if ret == True and len(frame_list) % 40 == 0: 
-            i += 1 
-            rst = make_infer(frame_list[40*(i-1):40*i], net, style)
-            output_queue.put((rst, ret))
-            print("[OUTPUT QUEUE]: ", output_queue.qsize())
-        if ret == False:
-            rst = make_infer(frame_list[40*i:], net, style)
-            output_queue.put((rst, ret))
-            print("SIZE OF OUTPUT_QUEUE: ", output_queue.qsize())
-            frame_list = []
-        '''
-
-'''
-def fuse_all_scores(output_queue, final_output_list):
-    while True:
-         (rst, ret) = output_queue.get()
-         fuse_score_list = [] 
-         seg_num = 0 
-         fused_rst = 0 
-         while ret == True: 
-             fuse_score_list.append(rst) 
-             seg_num += 1
-         if ret == False: 
-             fuse_score_list.append(rst)
-             seg_num += 1
-             for item in fuse_score_list:
-                 fused_rst += item 
-                 temp_fused_rst = np.argmax(np.mean(fused_rst/seg_num, axis=0))
-                 final_output_list.append(temp_fused_rst)
-                 print("LEN OF FINAL OUPUT LIST: " , len(final_output_list))
-             seg_num = 0 
-             fuse_score_list = [] 
-'''
-
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser( 
@@ -201,7 +163,6 @@ if __name__=="__main__":
     final_output_list = []
     
     jobs = [ Thread(name='Inference certain number of frames and output rst to Queue', target=get_frames_and_run, args=(frame_queue, rgb_net, 'RGB', final_output_list))]
-            # Thread(name='Fuse scores of all segments and output the final score', target=fuse_all_scores, args=(output_queue, final_output_list))]
 
     for job in jobs: 
         job.start() 

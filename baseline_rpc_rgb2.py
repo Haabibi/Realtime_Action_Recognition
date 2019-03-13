@@ -16,7 +16,7 @@ def make_ucf():
     with open(index_dir) as f:
         for line in f.readlines():
             s = line.split(' ')
-            index_dict.update({int(s[0])-1: s[1]})
+            index_dict.update({int(s[0])-1: s[1].strip()})
     return index_dict 
 
 def make_hmdb():
@@ -30,6 +30,7 @@ def make_hmdb():
 
 def eval_video(data, length, net, style, test_seg, num_class):
     #torch.cuda.set_device(0) if style == 'RGB' else torch.cuda.set_device(1)
+    on_gpu = time.time()
     data = data.cuda()
     net = net.cuda()
     input_var = torch.autograd.Variable(data.view(-1, length , data.size(1), data.size(2)), volatile=True)
@@ -37,7 +38,8 @@ def eval_video(data, length, net, style, test_seg, num_class):
     net_tic = time.time()
     rst = net(input_var)
     net_toc = time.time()
-    #print("INF TIME: ", net_toc-net_tic)
+    print(style, "INF TIME: ", net_toc-net_tic)
+    print("On GPU", style, net_tic-on_gpu, "!!@!&@^*!@^!%@!^@!")
     #torch.cuda.nvtx.range_pop()
     time_run_net = time.time()
     rst_data = rst.data.cpu().numpy().copy()
@@ -50,13 +52,13 @@ def _get_indices(data, style, test_seg):
     new_length = 1 if style == 'RGB' else 5 
     tick =  (len(data) - new_length +1) / float(test_seg)
     offsets = np.array([int(tick / 2.0 + tick * x) for x in range(test_seg)])
-    print(tick, offsets, len(data), "THIS IS THE LENGTH OF DATA")
+    #print(tick, offsets, len(data), "THIS IS THE LENGTH OF DATA")
     return offsets
 
 def _get_item(data, net, style, test_seg):
     list_imgs = []
     offsets = _get_indices(data, style, test_seg)
-    print(offsets)
+    #print(offsets)
     cropping = torchvision.transforms.Compose([
         GroupOverSample(net.input_size, net.scale_size)
     ]) 
@@ -69,7 +71,8 @@ def _get_item(data, net, style, test_seg):
         #ToTorchFormatTensor(div=args.arch != 'BNInception'),
         GroupNormalize(net.input_mean, net.input_std)
     ])
-
+    
+    getting_reading = time.time()
     for seg_ind in offsets:
         if style == 'RGB':
             seg_img = data[seg_ind]
@@ -77,26 +80,31 @@ def _get_item(data, net, style, test_seg):
             list_imgs.extend([im]) 
         if style == 'Flow':
             for i in range(5):
-                print("HERE IN SEG_IND: ", i)
+                #print("HERE IN SEG_IND: ", i)
                 seg_img = data[seg_ind + i] 
                 x_img = Image.fromarray(seg_img[0])
                 y_img = Image.fromarray(seg_img[1])
                 list_imgs.extend([x_img.convert('L'), y_img.convert('L')])
+    before_transform = time.time()
     process_data = transform(list_imgs)
+    after_transform = time.time()
+    print(style, "NP -> PIL", before_transform-getting_reading, "BEFORE AND AFTER TRANS", after_transform-before_transform)
     return process_data
 
 def make_infer(weights, batched_array, net, style, test_seg, num_class): 
     #torch.cuda.set_device(0) if style == 'RGB' else torch.cuda.set_device(1)
     #print("Current GPU for style {}: ".format(style), torch.cuda.current_device())
+    eval_vid_tic1 = time.time()
     net.float() 
     net.eval() 
     net = net.cuda() 
     eval_vid_tic = time.time()
-    time_data_tic = time.time()
     data = _get_item(batched_array, net, style, test_seg) 
-    time_data_toc = time.time()
+    real_inf_1 = time.time()
     rst = eval_video(data, 3 if style =="RGB" else 10, net, style, test_seg, num_class) 
     eval_vid_toc = time.time()
+    print("soonsoo getting ready for inf/ going on gpu ", style, eval_vid_tic - eval_vid_tic1)
+    print("soonsoo eval ", style, eval_vid_toc-real_inf_1)
     return rst 
 
 if __name__=="__main__":
@@ -217,7 +225,7 @@ if __name__=="__main__":
                 break
     cap.release()
     cv2.destroyAllWindows()
-    print(output_results)
+    #print(output_results)
     video_pred = [np.argmax(np.mean(x, axis=0)) for x in output]
     cf = confusion_matrix(video_labels, video_pred).astype(float)
     print("this is cf:" ,cf)
