@@ -107,7 +107,13 @@ def run_rgb_queue(rgb_queue, rgb_net, score_queue):
 def run_of_queue(of_queue, of_net, score_queue):
     while True:
         of_score = make_infer(of_queue.get(), of_net, 'Flow')  
-        score_queue.put(('Flow', of_score))
+        rgb_score = score_queue.get()[1]
+        avg = (of_score + rgb_score) / 2
+        video_pred = np.argmax(np.mean(avg[0], axis=0))
+        final_result=make_ucf()[video_pred] 
+        print(final_result)
+        
+        #score_queue.put(('Flow', of_score))
 
 def fuse_score(score_queue):
     score_dict = {'RGB': Queue(), 'Flow': Queue()}
@@ -211,8 +217,8 @@ if __name__=="__main__":
 
     #######MAKING THREADS#######
     jobs = [ Thread(target=run_rgb_queue, args=(rgb_queue, rgb_net, score_queue)), 
-         Thread(target=run_of_queue, args=(of_queue, of_net, score_queue)),
-         Thread(target=fuse_score, args=(score_queue, )) ] 
+             Thread(target=run_of_queue, args=(of_queue, of_net, score_queue))]
+        # Thread(target=fuse_score, args=(score_queue, )) ] 
 
     [ job.start() for job in jobs ] 
     
