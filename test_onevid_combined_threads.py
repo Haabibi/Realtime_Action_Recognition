@@ -55,6 +55,7 @@ def setting():
     after = time.time() 
     print("loading of_net: ", after-before)
     torch.cuda.nvtx.range_pop() 
+    
     return rgb_net, of_net
 
 def make_ucf():
@@ -76,16 +77,10 @@ def make_hmdb():
     return index_dict
 
 def eval_video(data, length, net, style):
-    #torch.cuda.set_device(0) if style == 'RGB' else torch.cuda.set_device(1)
     data = data.cuda() 
-    #print("EVAL_VIDEO DATASIZE", data.shape, type(data), style, torch.cuda.current_device())
     input_var = torch.autograd.Variable(data.view(-1, length , data.size(1), data.size(2)), volatile=True)
-    torch.cuda.nvtx.range_push(style)
     rst = net(input_var)
-    torch.cuda.nvtx.range_pop()
-    time_run_net = time.time()
     rst_data = rst.data.cpu().numpy().copy()
-
     output = rst_data.reshape((-1 , args.test_segments, num_class)).mean(axis=0).reshape((args.test_segments, 1, num_class))
     return output
 
@@ -108,7 +103,7 @@ def _get_item(data, net, style):
         ToTorchFormatTensor(div=args.arch != 'BNInception'),
         GroupNormalize(net.input_mean, net.input_std)
     ])
-
+    sample_img_time_1 = time.time()
     if style == 'RGB':
         for seg_ind in offsets:
           im = Image.fromarray(data[seg_ind], mode='RGB')
@@ -116,32 +111,29 @@ def _get_item(data, net, style):
           list_imgs.append(im) 
     
     if style == 'Flow':
- 
-     for seg_ind in offsets:
-              for i in range(5):
-                  x_img, y_img = streaming(data[seg_ind+i], data[seg_ind+(i+1)])
-                  x_img = Image.fromarray(x_img)
-                  y_img = Image.fromarray(y_img)
-                  x_img = x_img.resize((224, 224))
-                  y_img = y_img.resize((224, 224))
-                  list_imgs.extend([x_img.convert('L'), y_img.convert('L')]) 
+        for seg_ind in offsets:
+            for i in range(5):
+                x_img, y_img = streaming(data[seg_ind+i], data[seg_ind+(i+1)])
+                x_img = Image.fromarray(x_img)
+                y_img = Image.fromarray(y_img)
+                x_img = x_img.resize((224, 224))
+                y_img = y_img.resize((224, 224))
+                list_imgs.extend([x_img.convert('L'), y_img.convert('L')]) 
+    sample_img_time_2 = time.time() 
     process_data = transform(list_imgs) 
+    preprocess_img_time_3 = time.time()
+    print("[{}] Process Image: {}, Image Transformation: {}".format(style, sample_img_time_2-sample_img_time_1, preprocess_img_time_3-sample_img_time_2)) 
     return process_data
 
 def make_infer(batched_array, net, style): 
     net.float() 
     net.eval() 
-    net_cuda_tic = time.time()
-    net = net.cuda() 
-    net_cuda_toc = time.time() 
-    #print("[net_cuda_time]: ", net_cuda_toc-net_cuda_tic, next(net.parameters()).is_cuda)
-    eval_vid_tic = time.time()
-    time_data_tic = time.time()
     data = _get_item(batched_array, net, style) 
-    time_data_toc = time.time()
+    eval_vid_time_1 = time.time()
     rst = eval_video(data, 3 if style =="RGB" else 10, net, style) 
-    eval_vid_toc = time.time()
-    print(style, " [getitem]: ", time_data_toc-time_data_tic, "[rst, eval_vid]: ", eval_vid_toc-eval_vid_tic)
+    eval_vid_time_2 = time.time()
+    print("[{}] Run NN: {}".format(style, eval_vid_time_2-eval_vid_time_1))
+    
     return rst 
 
 def run_rgb_queue(rgb_queue, rgb_net, score_queue, in_progress):
@@ -158,10 +150,13 @@ def run_of_queue(of_queue, of_net, score_queue, in_progress):
     while True:
         of_score = make_infer(of_queue.get(), of_net, 'Flow')  
         rgb_score = score_queue.get()[1]
+        score_fusion_time_1 = time.time()
         avg = (of_score + rgb_score) / 2
         video_pred = np.argmax(np.mean(avg[0], axis=0))
-        final_result=make_ucf()[video_pred] 
+        final_result=make_ucf()[video_pred]
+        score_fusion_time_2 = time.time()
         print("RESULT: ", final_result)
+        print("Score Fusion Time: ", score_fusion_time_2 - score_fusion_time_1)
         counter += 1
         in_progress.set()
         if counter == args.num_repeat:
@@ -219,6 +214,7 @@ if __name__=="__main__":
         print("/////////////////////////////iTH iteration: ", i)
         while in_progress.wait():
             in_progress.clear()
+            video_streaming_1 = time.time()
             cap = cv2.VideoCapture(args.vid_dir)
             frame_list = list()
             while(cap.isOpened()):
@@ -229,6 +225,7 @@ if __name__=="__main__":
                 if ret == True:
                     frame_list.append(frame)
                 else:
+                    video_streaming_2 = time.time()
                     of_queue.put(frame_list)
                     rgb_queue.put(frame_list)
                     counter += 1
