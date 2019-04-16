@@ -100,11 +100,15 @@ def make_infer(batched_array, net, style):
     return rst 
 
 def run_rgb_queue(rgb_queue, rgb_net, score_queue):
+    counter = 0 
     while True:
         rgb_score = make_infer(rgb_queue.get(), rgb_net, 'RGB')  
         score_queue.put(('RGB', rgb_score)) 
-
+        counter += 1
+        if counter == args.num_repeat: 
+            break
 def run_of_queue(of_queue, of_net, score_queue):
+    counter = 0
     while True:
         of_score = make_infer(of_queue.get(), of_net, 'Flow')  
         rgb_score = score_queue.get()[1]
@@ -112,8 +116,9 @@ def run_of_queue(of_queue, of_net, score_queue):
         video_pred = np.argmax(np.mean(avg[0], axis=0))
         final_result=make_ucf()[video_pred] 
         print(final_result)
-        
-        #score_queue.put(('Flow', of_score))
+        counter += 1
+        if counter == args.num_repeat:
+            break
 
 def fuse_score(score_queue):
     score_dict = {'RGB': Queue(), 'Flow': Queue()}
