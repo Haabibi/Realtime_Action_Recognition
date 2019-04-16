@@ -150,9 +150,7 @@ def run_rgb_queue(rgb_queue, rgb_net, score_queue, in_progress):
         rgb_score = make_infer(rgb_queue.get(), rgb_net, 'RGB')  
         score_queue.put(('RGB', rgb_score)) 
         counter += 1
-        print("RGB", counter)
         if counter == args.num_repeat: 
-            print("BREAKING RGB")
             break
 
 def run_of_queue(of_queue, of_net, score_queue, in_progress):
@@ -165,10 +163,8 @@ def run_of_queue(of_queue, of_net, score_queue, in_progress):
         final_result=make_ucf()[video_pred] 
         print("RESULT: ", final_result)
         counter += 1
-        print("OF", counter)
         in_progress.set()
         if counter == args.num_repeat:
-            print("BREAKING OF")
             break
 
 if __name__=="__main__":
@@ -218,15 +214,13 @@ if __name__=="__main__":
 
     [ job.start() for job in jobs ] 
     in_progress.set() 
+    counter = 0 
     for i in range(args.num_repeat):
         print("/////////////////////////////iTH iteration: ", i)
         while in_progress.wait():
             in_progress.clear()
             cap = cv2.VideoCapture(args.vid_dir)
             frame_list = list()
-            output_results = {} 
-            counter = 0 
-            loading_frames =0
             while(cap.isOpened()):
                 ret, frame = cap.read()
                 accumulated_time_for_rgb = 0 
@@ -237,7 +231,11 @@ if __name__=="__main__":
                 else:
                     of_queue.put(frame_list)
                     rgb_queue.put(frame_list)
-                    break 
+                    counter += 1
+                    break
+            break
+        if counter == args.num_repeat:
+            break
 
     [ job.join() for job in jobs ]
 
