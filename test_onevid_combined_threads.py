@@ -9,8 +9,53 @@ from ops import ConsensusModule
 import pycuda.driver as cuda
 from PIL import Image
 from streaming import streaming 
-from threading import Thread  
+from threading import Thread, Event 
 from queue import Queue
+def setting():
+    import os 
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
+    cuda.init()
+    #######CHECK GPU STATUS#######
+    print("NUM OF DEVICES: ", cuda.Device.count())
+    gpu_list = [ i for i in range(cuda.Device.count())]
+    print("THIS IS GPU LIST: ", gpu_list)
+
+    #######LOADING RGB_NET#######
+    torch.cuda.nvtx.range_push('RGB NET')
+    before = time.time()
+    rgb_net = TSN(num_class, 1, 'RGB',
+              base_model=args.arch,
+              consensus_type=args.crop_fusion_type,
+              dropout=args.dropout)
+    rgb_checkpoint = torch.load(args.rgb_weights)
+    print("model epoch {} best prec@1: {}".format(rgb_checkpoint['epoch'], rgb_checkpoint['best_prec1']))
+    base_dict = {'.'.join(k.split('.')[1:]): v for k,v in list(rgb_checkpoint['state_dict'].items())}
+    rgb_net.load_state_dict(base_dict)
+    torch.cuda.set_device(0)
+    rgb_net = rgb_net.cuda()
+    print("[rgb_net_cuda]: ", next(rgb_net.parameters()).is_cuda, type(rgb_net))  # RETURNS TRUE
+    after = time.time() 
+    print("loading rgb_net: ", after-before)
+    torch.cuda.nvtx.range_pop()
+
+    #######LOADING OF_NET#######
+    torch.cuda.nvtx.range_push('OF NET')
+    before = time.time()
+    of_net = TSN(num_class, 1, 'Flow',
+              base_model=args.arch,
+              consensus_type=args.crop_fusion_type,
+              dropout=args.dropout)
+    of_checkpoint = torch.load(args.of_weights)
+    print("model epoch {} best prec@1: {}".format(of_checkpoint['epoch'], of_checkpoint['best_prec1']))
+    base_dict = {'.'.join(k.split('.')[1:]): v for k,v in list(of_checkpoint['state_dict'].items())}
+    of_net.load_state_dict(base_dict)
+    #torch.cuda.set_device(1) if len(gpu_list) != 0 else torch.cuda.set_device(0)
+    of_net = of_net.cuda()
+    print("[of_net_cuda]: ", next(rgb_net.parameters()).is_cuda, type(of_net))  # RETURNS TRUE
+    after = time.time() 
+    print("loading of_net: ", after-before)
+    torch.cuda.nvtx.range_pop() 
+    return rgb_net, of_net
 
 def make_ucf():
     index_dir = '/cmsdata/hdd2/cmslab/haabibi/UCF101CLASSIND.txt'
@@ -99,15 +144,18 @@ def make_infer(batched_array, net, style):
     print(style, " [getitem]: ", time_data_toc-time_data_tic, "[rst, eval_vid]: ", eval_vid_toc-eval_vid_tic)
     return rst 
 
-def run_rgb_queue(rgb_queue, rgb_net, score_queue):
+def run_rgb_queue(rgb_queue, rgb_net, score_queue, in_progress):
     counter = 0 
     while True:
         rgb_score = make_infer(rgb_queue.get(), rgb_net, 'RGB')  
         score_queue.put(('RGB', rgb_score)) 
         counter += 1
+        print("RGB", counter)
         if counter == args.num_repeat: 
+            print("BREAKING RGB")
             break
-def run_of_queue(of_queue, of_net, score_queue):
+
+def run_of_queue(of_queue, of_net, score_queue, in_progress):
     counter = 0
     while True:
         of_score = make_infer(of_queue.get(), of_net, 'Flow')  
@@ -115,28 +163,13 @@ def run_of_queue(of_queue, of_net, score_queue):
         avg = (of_score + rgb_score) / 2
         video_pred = np.argmax(np.mean(avg[0], axis=0))
         final_result=make_ucf()[video_pred] 
-        print(final_result)
+        print("RESULT: ", final_result)
         counter += 1
+        print("OF", counter)
+        in_progress.set()
         if counter == args.num_repeat:
+            print("BREAKING OF")
             break
-
-def fuse_score(score_queue):
-    score_dict = {'RGB': Queue(), 'Flow': Queue()}
-    counter = 0 
-    while True:
-        if score_queue.qsize() > 0:
-            modality, score = score_queue.get()
-            score_dict[modality].put(score)
-        if score_dict['RGB'].qsize() > 0 and score_dict['Flow'].qsize() > 0:
-            print("/////////FUSE SCORE////////: ", score_dict['RGB'].qsize(), score_dict['Flow'].qsize())
-            rst1 = score_dict['RGB'].get()
-            rst2 = score_dict['Flow'].get()
-            avg = (rst1+rst2)/2 
-            video_pred = np.argmax(np.mean(avg[0], axis=0))
-            final_result = make_ucf()[video_pred]
-            counter += 1 
-            print("THIS IS THE FINAL RESULT: ",final_result, counter)
-            if counter == args.num_repeat: break
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser( 
@@ -171,80 +204,40 @@ if __name__=="__main__":
     else:
         raise ValueError('Unknown dataset '+args.dataset)
     
-    import os 
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
-    cuda.init()
-    #######CHECK GPU STATUS#######
-    print("NUM OF DEVICES: ", cuda.Device.count())
-    gpu_list = [ i for i in range(cuda.Device.count())]
-    print("THIS IS GPU LIST: ", gpu_list)
-
-    #######LOADING RGB_NET#######
-    torch.cuda.nvtx.range_push('RGB NET')
-    before = time.time()
-    rgb_net = TSN(num_class, 1, 'RGB',
-              base_model=args.arch,
-              consensus_type=args.crop_fusion_type,
-              dropout=args.dropout)
-    rgb_checkpoint = torch.load(args.rgb_weights)
-    print("model epoch {} best prec@1: {}".format(rgb_checkpoint['epoch'], rgb_checkpoint['best_prec1']))
-    base_dict = {'.'.join(k.split('.')[1:]): v for k,v in list(rgb_checkpoint['state_dict'].items())}
-    rgb_net.load_state_dict(base_dict)
-    torch.cuda.set_device(0)
-    rgb_net = rgb_net.cuda()
-    print("[rgb_net_cuda]: ", next(rgb_net.parameters()).is_cuda, type(rgb_net))  # RETURNS TRUE
-    after = time.time() 
-    print("loading rgb_net: ", after-before)
-    torch.cuda.nvtx.range_pop()
-
-    #######LOADING OF_NET#######
-    torch.cuda.nvtx.range_push('OF NET')
-    before = time.time()
-    of_net = TSN(num_class, 1, 'Flow',
-              base_model=args.arch,
-              consensus_type=args.crop_fusion_type,
-              dropout=args.dropout)
-    of_checkpoint = torch.load(args.of_weights)
-    print("model epoch {} best prec@1: {}".format(of_checkpoint['epoch'], of_checkpoint['best_prec1']))
-    base_dict = {'.'.join(k.split('.')[1:]): v for k,v in list(of_checkpoint['state_dict'].items())}
-    of_net.load_state_dict(base_dict)
-    #torch.cuda.set_device(1) if len(gpu_list) != 0 else torch.cuda.set_device(0)
-    of_net = of_net.cuda()
-    print("[of_net_cuda]: ", next(rgb_net.parameters()).is_cuda, type(of_net))  # RETURNS TRUE
-    after = time.time() 
-    print("loading of_net: ", after-before)
-    torch.cuda.nvtx.range_pop() 
+    rgb_net, of_net = setting()
 
     #######MAKING QUEUE#######
     rgb_queue = Queue()
     of_queue = Queue()
     score_queue = Queue()
-
+    in_progress = Event()
+    
     #######MAKING THREADS#######
-    jobs = [ Thread(target=run_rgb_queue, args=(rgb_queue, rgb_net, score_queue)), 
-             Thread(target=run_of_queue, args=(of_queue, of_net, score_queue))]
-        # Thread(target=fuse_score, args=(score_queue, )) ] 
+    jobs = [ Thread(target=run_rgb_queue, args=(rgb_queue, rgb_net, score_queue, in_progress)), 
+             Thread(target=run_of_queue, args=(of_queue, of_net, score_queue, in_progress))]
 
     [ job.start() for job in jobs ] 
-    
+    in_progress.set() 
     for i in range(args.num_repeat):
         print("/////////////////////////////iTH iteration: ", i)
-        cap = cv2.VideoCapture(args.vid_dir)
-        frame_list = list()
-        output_results = {} 
-        counter = 0 
-        loading_frames =0
-        while(cap.isOpened()):
-            ret, frame = cap.read()
-            accumulated_time_for_rgb = 0 
-            accumulated_time_for_of = 0 
-            accumulated_RGB, accumulated_OF = 0, 0
-            if ret == True:
-                frame_list.append(frame)
-            else:
-                of_queue.put(frame_list)
-                rgb_queue.put(frame_list)
-                break 
+        while in_progress.wait():
+            in_progress.clear()
+            cap = cv2.VideoCapture(args.vid_dir)
+            frame_list = list()
+            output_results = {} 
+            counter = 0 
+            loading_frames =0
+            while(cap.isOpened()):
+                ret, frame = cap.read()
+                accumulated_time_for_rgb = 0 
+                accumulated_time_for_of = 0 
+                accumulated_RGB, accumulated_OF = 0, 0
+                if ret == True:
+                    frame_list.append(frame)
+                else:
+                    of_queue.put(frame_list)
+                    rgb_queue.put(frame_list)
+                    break 
 
     [ job.join() for job in jobs ]
 
