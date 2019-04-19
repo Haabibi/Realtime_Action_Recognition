@@ -113,7 +113,10 @@ def _get_item(data, net, style):
     if style == 'Flow':
         for seg_ind in offsets:
             for i in range(5):
+                time_streaming_1 = time.time()
                 x_img, y_img = streaming(data[seg_ind+i], data[seg_ind+(i+1)])
+                time_streaming_2 = time.time()
+                time_streaming_of.append(time_streaming_2 - time_streaming_1)
                 x_img = Image.fromarray(x_img)
                 y_img = Image.fromarray(y_img)
                 x_img = x_img.resize((224, 224))
@@ -122,7 +125,13 @@ def _get_item(data, net, style):
     sample_img_time_2 = time.time() 
     process_data = transform(list_imgs) 
     preprocess_img_time_3 = time.time()
-    print("[{}] Process Image: {}, Image Transformation: {}".format(style, sample_img_time_2-sample_img_time_1, preprocess_img_time_3-sample_img_time_2)) 
+    if style == 'RGB':
+        time_img_transformation_rgb.append(preprocess_img_time_3 - sample_img_time_2)
+        time_preprocessing_rgb.append(sample_img_time_2 - sample_img_time_1)
+    else:
+        time_img_transformation_of.append(preprocess_img_time_3 - sample_img_time_2)
+        time_preprocessing_of.append(sample_img_time_2 - sample_img_time_1)
+    #print("[{}] Process Image: {}, Image Transformation: {}".format(style, sample_img_time_2-sample_img_time_1, preprocess_img_time_3-sample_img_time_2)) 
     return process_data
 
 def make_infer(batched_array, net, style): 
@@ -132,7 +141,11 @@ def make_infer(batched_array, net, style):
     eval_vid_time_1 = time.time()
     rst = eval_video(data, 3 if style =="RGB" else 10, net, style) 
     eval_vid_time_2 = time.time()
-    print("[{}] Run NN: {}".format(style, eval_vid_time_2-eval_vid_time_1))
+    if style == 'RGB':
+        time_run_nn_rgb.append(eval_vid_time_2 - eval_vid_time_1)
+    else: 
+        time_run_nn_of.append(eval_vid_time_2 - eval_vid_time_1)
+    #print("[{}] Run NN: {}".format(style, eval_vid_time_2-eval_vid_time_1))
     
     return rst 
 
@@ -156,7 +169,7 @@ def run_of_queue(of_queue, of_net, score_queue, in_progress):
         final_result=make_ucf()[video_pred]
         score_fusion_time_2 = time.time()
         print("RESULT: ", final_result)
-        print("Score Fusion Time: ", score_fusion_time_2 - score_fusion_time_1)
+        time_fuse_score.append(score_fusion_time_2 - score_fusion_time_1)
         counter += 1
         in_progress.set()
         if counter == args.num_repeat:
@@ -169,7 +182,7 @@ if __name__=="__main__":
     parser.add_argument('rgb_weights', type=str)
     parser.add_argument('of_weights', type=str)
     parser.add_argument('--arch', type=str, default="BNInception")
-    parser.add_argument('--test_segments', type=int, default=3)
+    parser.add_argument('--test_segments', type=int, default=25)
     parser.add_argument('--max_num', type=int, default=-1)
     parser.add_argument('--test_crops', type=int, default=10)
     parser.add_argument('--input_size', type=int, default=224)
@@ -181,7 +194,7 @@ if __name__=="__main__":
     parser.add_argument('--gpus', type=str, default=None)
     parser.add_argument('--flow_prefix', type=str, default='')
     parser.add_argument('--sliding_window', type=int, default=40)
-    parser.add_argument('--num_repeat', type=int, default=5)
+    parser.add_argument('--num_repeat', type=int, default=13)
     parser.add_argument('--vid_dir', type=str, default='/cmsdata/hdd2/cmslab/haabibi/UCF101/v_Archery_g10_c05.avi')
     parser.add_argument('--interval', type=int, default = 40)
     args = parser.parse_args()
@@ -197,6 +210,17 @@ if __name__=="__main__":
     
     rgb_net, of_net = setting()
 
+    #######TIME LIST ########
+    time_streaming = []
+    time_preprocessing_rgb = []
+    time_preprocessing_of = []
+    time_img_transformation_rgb = []
+    time_img_transformation_of = []
+    time_run_nn_rgb = []
+    time_run_nn_of = [] 
+    time_fuse_score = []
+    time_streaming_of = []
+
     #######MAKING QUEUE#######
     rgb_queue = Queue()
     of_queue = Queue()
@@ -211,7 +235,7 @@ if __name__=="__main__":
     in_progress.set() 
     counter = 0 
     for i in range(args.num_repeat):
-        print("/////////////////////////////iTH iteration: ", i)
+        print("[Iteration {}]".format(i))
         while in_progress.wait():
             in_progress.clear()
             video_streaming_1 = time.time()
@@ -226,6 +250,7 @@ if __name__=="__main__":
                     frame_list.append(frame)
                 else:
                     video_streaming_2 = time.time()
+                    time_streaming.append(video_streaming_2 - video_streaming_1)
                     of_queue.put(frame_list)
                     rgb_queue.put(frame_list)
                     counter += 1
@@ -235,4 +260,20 @@ if __name__=="__main__":
             break
 
     [ job.join() for job in jobs ]
+    
+    time_list = [ time_streaming,
+                  time_preprocessing_rgb,
+                  time_preprocessing_of,
+                  time_img_transformation_rgb,
+                  time_img_transformation_of,
+                  time_run_nn_rgb,
+                  time_run_nn_of, 
+                  time_fuse_score,
+                  time_streaming_of]
 
+    for item in time_list:
+        zero = 0 
+        for time in item:
+            zero += time 
+        print(item)
+        print(zero/len(item))
