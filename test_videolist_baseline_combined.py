@@ -8,7 +8,7 @@ from transforms import *
 from ops import ConsensusModule
 import pycuda.driver as cuda
 from PIL import Image
-from streaming import streaming 
+from optical_flow_streaming import streaming 
 
 def make_ucf():
     index_dir = '/cmsdata/hdd2/cmslab/haabibi/UCF101CLASSIND.txt'
@@ -29,14 +29,11 @@ def make_hmdb():
     return index_dict
 
 def eval_video(data, length, net, style):
-    #torch.cuda.set_device(0) if style == 'RGB' else torch.cuda.set_device(1)
-    
+    torch.cuda.set_device(0) if style == 'RGB' else torch.cuda.set_device(1)
     data = data.cuda() 
     input_var = torch.autograd.Variable(data.view(-1, length , data.size(1), data.size(2)), volatile=True)
-    #print("INPUT VAR", input_var.shape)
     #torch.cuda.nvtx.range_push(style)
     rst = net(input_var)
-    #print("RST SHAPE", rst.shape, style)
     #torch.cuda.nvtx.range_pop()
     time_run_net = time.time()
     rst_data = rst.data.cpu().numpy().copy()
@@ -79,22 +76,13 @@ def _get_item(data, net, style):
     return process_data
 
 def make_infer(weights, batched_array, net, style): 
-    #torch.cuda.set_device(0) if style == 'RGB' else torch.cuda.set_device(1)
-    #print("Current GPU for style {}: ".format(style), torch.cuda.current_device())
+    torch.cuda.set_device(0) if style == 'RGB' else torch.cuda.set_device(1)
+    print("Current GPU for style {}: ".format(style), torch.cuda.current_device())
     net.float() 
     net.eval() 
-    net_cuda_tic = time.time()
     net = net.cuda() 
-    net_cuda_toc = time.time() 
-    #print("[net_cuda_time]: ", net_cuda_toc-net_cuda_tic, next(net.parameters()).is_cuda)
-    eval_vid_tic = time.time()
-    time_data_tic = time.time()
     data = _get_item(batched_array, net, style) 
-    #print("THIS IS FROM MAKE_INFER Data: ", data.shape) 
-    time_data_toc = time.time()
     rst = eval_video(data, 3 if style =="RGB" else 10, net, style) 
-    eval_vid_toc = time.time()
-    #print("[getitem]: ", time_data_toc-time_data_tic, "[rst, eval_vid]: ", eval_vid_toc-eval_vid_tic)
     return rst 
 
 if __name__=="__main__":
@@ -131,15 +119,14 @@ if __name__=="__main__":
     
     import os 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
-    #cuda.init()
+    cuda.init()
     #######CHECK GPU STATUS#######
-    #print("NUM OF DEVICES: ", cuda.Device.count())
-    #gpu_list = [ i for i in range(cuda.Device.count())]
-    #print("THIS IS GPU LIST: ", gpu_list)
+    print("NUM OF DEVICES: ", cuda.Device.count())
+    gpu_list = [ i for i in range(cuda.Device.count())]
+    print("THIS IS GPU LIST: ", gpu_list)
 
     #######LOADING RGB_NET#######
     #torch.cuda.nvtx.range_push('RGB NET')
-    before = time.time()
     rgb_net = TSN(num_class, 1, 'RGB',
                   base_model=args.arch,
                   consensus_type=args.crop_fusion_type,
@@ -148,16 +135,13 @@ if __name__=="__main__":
     print("model epoch {} best prec@1: {}".format(rgb_checkpoint['epoch'], rgb_checkpoint['best_prec1']))
     base_dict = {'.'.join(k.split('.')[1:]): v for k,v in list(rgb_checkpoint['state_dict'].items())}
     rgb_net.load_state_dict(base_dict)
-    #torch.cuda.set_device(0)
-    #rgb_net = rgb_net.cuda()
+    torch.cuda.set_device(0)
+    rgb_net = rgb_net.cuda()
     #print("[rgb_net_cuda]: ", next(rgb_net.parameters()).is_cuda, type(rgb_net))  # RETURNS TRUE
-    #after = time.time() 
-    #print("loading rgb_net: ", after-before)
     #torch.cuda.nvtx.range_pop()
 
     #######LOADING OF_NET#######
     #torch.cuda.nvtx.range_push('OF NET')
-    before = time.time()
     of_net = TSN(num_class, 1, 'Flow',
                   base_model=args.arch,
                   consensus_type=args.crop_fusion_type,
@@ -166,11 +150,9 @@ if __name__=="__main__":
     print("model epoch {} best prec@1: {}".format(of_checkpoint['epoch'], of_checkpoint['best_prec1']))
     base_dict = {'.'.join(k.split('.')[1:]): v for k,v in list(of_checkpoint['state_dict'].items())}
     of_net.load_state_dict(base_dict)
-    #torch.cuda.set_device(1) if len(gpu_list) > 0 else torch.cuda.set_device(0)
-    #of_net = of_net.cuda()
+    torch.cuda.set_device(1) if len(gpu_list) > 0 else torch.cuda.set_device(0)
+    of_net = of_net.cuda()
     #print("[of_net_cuda]: ", next(rgb_net.parameters()).is_cuda, type(of_net))  # RETURNS TRUE
-    #after = time.time() 
-    #print("loading of_net: ", after-before)
     #torch.cuda.nvtx.range_pop() 
     
     rgb_output, of_output, video_labels = [], [], []
@@ -187,7 +169,6 @@ if __name__=="__main__":
         rgb_list, _tmp_of, of_list, real_output = list(), list(), list(), list()
         output_results = {} 
         loading_frames =0
-        before11 = time.time()
         rst = 0 
         accu_flow_toc = 0
         num_frames = 0 
@@ -207,17 +188,11 @@ if __name__=="__main__":
                     accu_flow_toc += (flow_toc-flow_tic)
             else:
                 counter+= 1
-                inf_tic = time.time()
                 rgb_rst = make_infer(args.rgb_weights, rgb_list, rgb_net, 'RGB')
-                inf_toc_rgb = time.time()
                 of_rst = make_infer(args.of_weights, of_list, of_net, 'Flow')
-                inf_toc_of = time.time()
                 print("video {} done, total {}/{}".format(counter-1, counter, len(data_loader) )) 
-                accumulated_RGB_time += inf_toc_rgb-inf_tic
-                accumulated_OF_time += inf_toc_of - inf_toc_rgb
                 rgb_output.append(rgb_rst)
                 of_output.append(of_rst)
-                print("[output length]: ", len(rgb_output), "how long it took to infer one video: ", inf_toc_rgb-inf_tic, inf_toc_of-inf_toc_rgb, "avg time streaming: ", accu_flow_toc/num_frames)
                 
                 break 
     
