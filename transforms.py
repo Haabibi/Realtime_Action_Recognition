@@ -66,15 +66,14 @@ class GroupNormalize(object):
         self.std = std
 
     def __call__(self, tensor):
-        time_1 = time.time()
         rep_mean = self.mean * (tensor.size()[0]//len(self.mean))
         rep_std = self.std * (tensor.size()[0]//len(self.std))
 
         # TODO: make efficient
         for t, m, s in zip(tensor, rep_mean, rep_std):
             t.sub_(m).div_(s)
-        time_2 = time.time()
-        #print( "GROUP NORMALIZE : ", time_2-time_1)
+        #print('FROM GROUP NORMALIZE: ', type(tensor), tensor.shape, torch.min(tensor), torch.max(tensor), torch.std(tensor), torch.mean(tensor))
+        
         return tensor
 
 
@@ -104,7 +103,6 @@ class GroupOverSample(object):
             self.scale_worker = None
 
     def __call__(self, img_group):
-        time_1 = time.time()
         if self.scale_worker is not None:
             img_group = self.scale_worker(img_group)
 
@@ -128,8 +126,6 @@ class GroupOverSample(object):
 
             oversample_group.extend(normal_group)
             oversample_group.extend(flip_group)
-        time_2 = time.time()
-        #print("TIME FROM GROUPOVERSAMPLE: " , time_2 - time_1)
         
         
         return oversample_group
