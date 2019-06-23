@@ -89,11 +89,12 @@ def _get_indices(data, style):
     new_length = 1 if style == 'RGB' else 5 
     tick =  (len(data) - new_length + 1) / float(args.test_segments)
     offsets = np.array([int(tick / 2.0 + tick * x) for x in range(args.test_segments)])
+    print("[{}]".format(style), offsets)
     return offsets
 
 def _get_item(data, net, style):
     list_imgs = []
-    offsets = _get_indices(data, style)
+    offsets = _get_indices(data[:-1], style)
     cropping = torchvision.transforms.Compose([
         GroupOverSample(net.input_size, net.scale_size)
     ]) 
@@ -204,7 +205,7 @@ if __name__=="__main__":
     parser.add_argument('--gpus', type=str, default=None)
     parser.add_argument('--flow_prefix', type=str, default='')
     parser.add_argument('--sliding_window', type=int, default=40)
-    parser.add_argument('--vid_dir', type=str, default='./video_kcc_ucf101_rgb_val_tmp.txt')
+    parser.add_argument('--vid_dir', type=str, default='./video_kcc_ucf101_rgb_val.txt')
     args = parser.parse_args()
 
     if args.dataset == 'ucf101':
@@ -257,6 +258,7 @@ if __name__=="__main__":
             in_progress.clear()
             video_streaming_1 = time.time()
             cap = cv2.VideoCapture(vid_dir)
+            print("Video Dir: ", vid_dir)
             frame_list = list()
             while(cap.isOpened()):
                 ret, frame = cap.read()
